@@ -566,6 +566,7 @@ const app = createApp({
             model: DEFAULT_API_CONFIG.qualityModel,
             contextSize: MAX_CONTEXT_SIZE,
             temperature: 1.0,
+            selectedModelSlot: 'quality',
             reasoningEffort: '',
             stream: true,
             activeToolAggressiveness: 'adaptive',
@@ -816,6 +817,7 @@ const app = createApp({
         });
 
         watch(() => [settings.apiUrl, settings.apiKey, settings.model], ([, , newModel]) => {
+            if (!_initComplete) { syncSettingsToGenerator(); return; }
             if (newModel !== settings.fastModel && newModel !== settings.balancedModel) {
                 settings.qualityModel = newModel; // 确保 qualityModel 也同步更新
             }
@@ -823,7 +825,9 @@ const app = createApp({
 
 
             // Update currentModelMode based on the actual selected model
-            if (newModel === settings.fastModel) {
+            if (settings[`${currentModelMode.value}Model`] === newModel) {
+                // Preserve the explicitly selected slot even when two slots use the same model.
+            } else if (newModel === settings.fastModel) {
                 currentModelMode.value = 'fast';
             } else if (newModel === settings.balancedModel) {
                 currentModelMode.value = 'balanced';
@@ -839,7 +843,10 @@ const app = createApp({
             syncSettingsToGenerator();
         });
 
-        const currentModelMode = ref('quality');
+        const currentModelMode = computed({
+            get: () => settings.selectedModelSlot,
+            set: mode => { settings.selectedModelSlot = mode; }
+        });
         const isGeminiModel = computed(() => /gemini/i.test(String(settings.model || '')));
         const isTruncationEnabled = computed(() => isGeminiModel.value && settings.preventTruncation);
         const modelMode = computed({
@@ -1749,6 +1756,7 @@ const app = createApp({
                 } else {
                     normalizeApiProviderSettings();
                 }
+                RPHubChatPreferences.restore(settings, await getStoredValue('chat_preferences_v2'));
                 settings.fontSize = normalizeFontSize(settings.fontSize);
                 if (settings.reasoningEffort === 'xhigh') settings.reasoningEffort = 'max';
                 if (!imageModelOptions.some(option => option.value === settings.imageModel)) {
@@ -2282,6 +2290,15 @@ const app = createApp({
             if (!_initComplete) return;
             debouncedSave();
         }, { deep: true });
+
+        const saveChatPreferencesNow = () => {
+            if (!_initComplete) return Promise.resolve();
+            return setStoredValue('chat_preferences_v2', RPHubChatPreferences.snapshot(settings), { clone: false });
+        };
+        watch(() => [settings.temperature, settings.selectedModelSlot, settings.model,
+            settings.qualityModel, settings.balancedModel, settings.fastModel], () => {
+            saveChatPreferencesNow().catch(() => showToast('模型与温度设置未能保存，请稍后重试', 'warning'));
+        }, { flush: 'post' });
 
         // Watch chat history length only so large histories do not get traversed on load.
         // Message edits and generation completion still call saveData/saveChatHistoryNow directly.
@@ -4257,6 +4274,7 @@ const app = createApp({
         };
         const generateResponse = async (startTime = null, options = {}) => {
             const proactive = options.proactive || null;
+            const mailbox = proactive?.mailbox === true;
             if (proactive && !proactive.isCurrent()) return;
             const generationCharacterId = currentCharacter.value?.uuid;
             const generationScope = proactive?.scope;
@@ -4392,10 +4410,10 @@ const app = createApp({
             if (activeToolPrompt) systemPromptParts.push(activeToolPrompt);
             else if (activeToolDepth > 0) systemPromptParts.push('本轮工具调用已结束，请依据已有结果完成回复，不再调用工具；无法确认的信息明确说明。');
 
-            const uiTemplateContextPrompt = buildUiTemplateContextSystemPrompt();
+            const uiTemplateContextPrompt = mailbox ? '' : buildUiTemplateContextSystemPrompt();
             if (uiTemplateContextPrompt) systemPromptParts.push(uiTemplateContextPrompt);
 
-            const mainModelUiTemplatePrompt = buildMainModelUiTemplateUpdatePrompt();
+            const mainModelUiTemplatePrompt = mailbox ? '' : buildMainModelUiTemplateUpdatePrompt();
             if (mainModelUiTemplatePrompt) systemPromptParts.push(mainModelUiTemplatePrompt);
 
             if (cotPresets.length > 0) {
@@ -4615,8 +4633,8 @@ const app = createApp({
                 })
                 .filter(m => String(m.content || '').trim())
             );
-            appendPendingUiTemplateCorrection(messages);
-            appendNextResponsePrompt(messages, {
+            if (!mailbox) appendPendingUiTemplateCorrection(messages);
+            if (!mailbox) appendNextResponsePrompt(messages, {
                 cotEnabled: cotPresets.length > 0,
                 useThinkingTag,
                 writingStylePrompt: writingStylePresets
@@ -4722,8 +4740,8 @@ const app = createApp({
                 }
 
                 assistantMessage = createAssistantMessage(content, reasoning);
-                chatHistory.value.push(assistantMessage);
-                isReceiving.value = true;
+                if (!mailbox) chatHistory.value.push(assistantMessage);
+                isReceiving.value = !mailbox;
                 return assistantMessage;
             };
 
@@ -4851,22 +4869,26 @@ const app = createApp({
                         }
                     }
                 }
+                if (mailbox && responseResult.toolCalls.length) throw new Error('留言不执行剧情工具，本次不保存');
                 if (responseResult.toolCalls.length) {
                     assistantMessage = ensureAssistantMessage();
                     syncNativeActiveToolUis(assistantMessage, responseResult.toolCalls, requestToolUis, requestTools, true);
                     toolResponse = responseResult;
                     activeToolHandoffPending.value = true;
                 }
+                if (mailbox) RPHubMailbox.cleanContent(parseCot(assistantMessage?.content || '').main);
                 const duration = Date.now() - generationStartTime;
 
                 if (assistantMessage) {
                     generatedAssistantMessageId = assistantMessage.id;
-                    if (!toolResponse && settings.uiTemplateEnabled && settings.uiTemplateMainModelAnalysis) {
+                    if (!mailbox && !toolResponse && settings.uiTemplateEnabled && settings.uiTemplateMainModelAnalysis) {
                         applyMainModelUiTemplateUpdates(assistantMessage, requestModel);
                     }
 
-                    recentGenerationTimes.value.push({ id: assistantMessage.id, duration });
-                    if (recentGenerationTimes.value.length > 5) recentGenerationTimes.value.shift();
+                    if (!mailbox) {
+                        recentGenerationTimes.value.push({ id: assistantMessage.id, duration });
+                        if (recentGenerationTimes.value.length > 5) recentGenerationTimes.value.shift();
+                    }
                 }
             } catch (error) {
                 generationFailed = true;
@@ -4909,10 +4931,28 @@ const app = createApp({
                 if (continuationToolCall && continuationToolCall.status === 'continuing') {
                     continuationToolCall.status = 'done';
                 }
-                collapseActiveNativeReasoning();
-                await saveChatHistoryNow(generationScope, generationHistory);
+                if (mailbox) {
+                    if (!generationFailed && !wasCancelled && !requestSignal.aborted && proactive.isCurrent()) {
+                        const record = await RPHubMailbox.append(getMainDb(), {
+                            id: proactive.messageId, characterId: generationCharacterId,
+                            characterName: currentCharacter.value?.name || '',
+                            content: parseCot(assistantMessage?.content || '').main,
+                            createdAt: Date.now(), sourceMainScopeId: generationScope,
+                            sourceMainMessageId: generationHistory.at(-1)?.id || null,
+                            developmentTest: proactive.developmentTest === true
+                        }, requestSignal);
+                        if (proactive.isCurrent()) {
+                            mailboxMessages.value = await RPHubMailbox.read(getMainDb(), generationCharacterId);
+                            showMailbox.value = true;
+                            showToast('老公的新留言已放进留言箱 💌', 'success');
+                        }
+                    }
+                } else {
+                    collapseActiveNativeReasoning();
+                    await saveChatHistoryNow(generationScope, generationHistory);
+                }
                 if (!proactive) recordProactiveInteraction();
-                else if (assistantMessage?.content) {
+                else if (!mailbox && assistantMessage?.content) {
                     await RPHubProactive.touch(getMainDb(), generationCharacterId, Date.now())
                         .catch(error => console.warn('[主动消息] 记录互动失败', error));
                 }
@@ -4938,7 +4978,7 @@ const app = createApp({
                     resetActiveToolResultContext();
                     activeToolHandoffPending.value = false;
                 }
-                const needsPostGenerationTurns = !wasCancelled && !generationFailed
+                const needsPostGenerationTurns = !mailbox && !wasCancelled && !generationFailed
                     && !toolResponse
                     && ((settings.uiTemplateEnabled && generatedAssistantMessageId)
                         || memorySettings.enabled);
@@ -4968,6 +5008,35 @@ const app = createApp({
         // Manual-confirmation pilot. No background timers or synthetic user messages.
         const proactiveSettings = reactive({ ...RPHubProactive.defaults });
         const proactiveOffer = ref(null);
+        const showMailbox = ref(false);
+        const mailboxMessages = ref([]);
+        const mailboxLoading = ref(false);
+        const mailboxLoadError = ref('');
+        const mailboxDevelopmentEnabled = ref(false); // intentionally not persisted; reset on every reload
+        let mailboxLoadEpoch = 0;
+        const refreshMailbox = async () => {
+            const epoch = ++mailboxLoadEpoch;
+            const id = currentCharacter.value?.uuid;
+            mailboxMessages.value = [];
+            mailboxLoadError.value = '';
+            if (!id) return;
+            mailboxLoading.value = true;
+            try {
+                const messages = await RPHubMailbox.read(getMainDb(), id);
+                if (epoch === mailboxLoadEpoch && currentCharacter.value?.uuid === id) mailboxMessages.value = messages;
+            } catch (_) {
+                if (epoch === mailboxLoadEpoch) mailboxLoadError.value = '留言读取失败，请稍后重新打开';
+            } finally {
+                if (epoch === mailboxLoadEpoch) mailboxLoading.value = false;
+            }
+        };
+        const openMailbox = async () => { showMailbox.value = true; await refreshMailbox(); };
+        watch(() => currentCharacter.value?.uuid, () => {
+            showMailbox.value = false;
+            mailboxMessages.value = [];
+            mailboxLoadError.value = '';
+            ++mailboxLoadEpoch;
+        });
         let proactiveReady = false;
         let proactiveVisitConsumed = false;
         let proactiveHiddenAt = null;
@@ -5011,9 +5080,12 @@ const app = createApp({
             // Store even while disabled, so enabling later has a genuine baseline.
             RPHubProactive.touch(getMainDb(), id, Date.now()).catch(error => console.warn('[主动消息] 记录互动失败', error));
         };
-        const confirmProactiveMessage = async () => {
+        const confirmProactiveMessage = async ({ developmentTest = false } = {}) => {
             const offer = proactiveOffer.value;
-            if (!offer || !proactiveOfferVisible.value || chatHistory.value !== offer.history
+            const canConfirm = developmentTest
+                ? mailboxDevelopmentEnabled.value && proactiveSettings.enabled && proactiveScopeReady()
+                : proactiveOfferVisible.value;
+            if (!offer || !canConfirm || chatHistory.value !== offer.history
                 || chatHistory.value.length !== offer.length || !settings.apiUrl || !settings.apiKey || !settings.model) {
                 showToast('请确认主线会话及 API 配置后重试', 'warning');
                 return;
@@ -5040,16 +5112,37 @@ const app = createApp({
                 }
                 const now = Date.now();
                 const claimed = await RPHubProactive.claim(getMainDb(), offer.id,
-                    RPHubProactive.normalize(proactiveSettings), now, offer.lastInteraction);
-                if (!claimed || !isCurrent() || !proactiveSettings.enabled
+                    RPHubProactive.normalize(proactiveSettings), now, offer.lastInteraction,
+                    { developmentTest, expectedSerial: offer.attemptSerial || 0 });
+                if (!claimed) { showToast('今日额度已用完或本次回访已处理，请稍后再来', 'info'); return; }
+                if (!isCurrent() || !proactiveSettings.enabled
                     || chatHistory.value.length !== offer.length || document.visibilityState !== 'visible') return;
                 await generateResponse(now, { proactive: { scope, history: offer.history, isCurrent,
-                    instruction: RPHubProactive.prompt(offer.lastInteraction, now) } });
+                    mailbox: true, messageId: generateUUID(), developmentTest,
+                    instruction: RPHubMailbox.prompt(offer.lastInteraction, now) } });
             } catch (error) {
                 showToast(`主动消息未完成：${error.message || '请稍后回访'}`, 'warning');
             } finally {
                 proactiveBusy.value = false;
             }
+        };
+        const requestMailboxDevelopmentTest = async () => {
+            if (!mailboxDevelopmentEnabled.value || !proactiveSettings.enabled || !proactiveScopeReady()
+                || !chatHistory.value.some(message => message.role === 'user')) return;
+            const id = currentCharacter.value.uuid;
+            const history = chatHistory.value;
+            try {
+                let state = await RPHubProactive.read(getMainDb());
+                if (!state.characters[id]) {
+                    await RPHubProactive.touch(getMainDb(), id, Date.now());
+                    state = await RPHubProactive.read(getMainDb());
+                }
+                if (!proactiveScopeReady() || currentCharacter.value?.uuid !== id || chatHistory.value !== history) return;
+                proactiveOffer.value = { id, history, length: history.length,
+                    lastInteraction: state.characters[id].lastInteraction,
+                    attemptSerial: state.characters[id].attemptSerial || 0 };
+                await confirmProactiveMessage({ developmentTest: true });
+            } catch (_) { showToast('开发测试未完成，请检查留言存储和 API 配置', 'warning'); }
         };
         const handleProactiveVisibility = () => {
             if (document.visibilityState === 'hidden') {
@@ -7888,8 +7981,7 @@ const app = createApp({
                 showUserSetupModal.value = true;
             }
 
-            // 每次启动时强制重置温度为 1.0
-            settings.temperature = 1.0;
+            // User temperature and selected slot were restored by loadData().
 
             // --- Enforce Defaults ---
 
@@ -8340,6 +8432,11 @@ const app = createApp({
 
         return {
             proactiveSettings, proactiveOfferVisible, confirmProactiveMessage,
+            showMailbox, mailboxMessages, mailboxLoading, mailboxLoadError, openMailbox, activeStoryBranchId,
+            mailboxDevelopmentEnabled, requestMailboxDevelopmentTest, saveChatPreferencesNow,
+            formatMailboxTime: RPHubMailbox.beijingTime,
+            exportMailbox: () => downloadJsonFile({ version: 2, characterId: currentCharacter.value?.uuid,
+                messages: mailboxMessages.value }, 'RP-Hub-mailbox.json'),
             switchProfile, createNewProfile, deleteProfile, userProfiles, activeProfileId, showProfileDropdown,
             processMainContent, replaceUserNamePlaceholder,
             currentView, showDescriptionPanel, showModelSelector, modelSelectionTarget, openModelSelector, showChatModelSelector, showCharacterEditor, showAddCharacterMenu, showPresetEditor, showUiTemplateEditor,

@@ -38,9 +38,14 @@
         state.characters[id] = { ...state.characters[id], lastInteraction: now };
         return { write: true };
     });
-    const claim = (db, id, config, now, expectedInteraction) => transact(db, state => {
-        if (!eligible(state, id, config, now)
-            || state.characters[id].lastInteraction !== expectedInteraction) return { value: false };
+    const claim = (db, id, config, now, expectedInteraction, options = {}) => transact(db, state => {
+        const entry = state.characters[id];
+        const developmentAllowed = options.developmentTest === true && config.enabled && entry
+            && (state.daily[dayKey(now)] || 0) < config.dailyLimit
+            && (entry.attemptSerial || 0) === options.expectedSerial;
+        if (!(options.developmentTest === true ? developmentAllowed : eligible(state, id, config, now))
+            || entry.lastInteraction !== expectedInteraction) return { value: false };
+        entry.attemptSerial = (entry.attemptSerial || 0) + 1;
         state.characters[id].lastAttempt = now;
         state.daily[dayKey(now)] = (state.daily[dayKey(now)] || 0) + 1;
         // Keep a bounded counter history; failed/aborted requests consume their attempt.
