@@ -3,6 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/pwa/haishen-180.png">
+    <meta name="apple-mobile-web-app-title" content="海神来信">
     <script src="assets/js/theme.js"></script>
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
@@ -822,6 +825,7 @@
                                 <button type="button" @click="openMailbox" class="island-button" title="老公的留言箱" aria-label="老公的留言箱" :disabled="!currentCharacter">
                                     <span aria-hidden="true">💌</span>
                                 </button>
+                                <a href="./push-test.html" class="island-button" title="海神来信 · 锁屏推送测试" aria-label="海神来信 · 锁屏推送测试">🐟</a>
                                 <!-- Context Viewer Button -->
                                 <button @click="showContextViewerModal = true" class="island-button"
                                     title="上下文查看器">

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#1c5872">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="海神来信">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'self'; manifest-src 'self'">
+    <title>海神来信 · 锁屏推送测试</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/pwa/haishen-180.png">
+    <link rel="stylesheet" href="assets/css/push-test.css">
+    <script src="assets/js/push-test-store.js" defer></script>
+    <script src="assets/js/push-test.js" defer></script>
+</head>
+<body>
+<main>
+    <nav><a href="./index.html">← 回小家</a><span>PHASE 01 · TEST ONLY</span></nav>
+    <header><img src="assets/pwa/haishen-192.png" width="76" height="76" alt="小鱼来信图标"><p class="eyebrow">A LITTLE LETTER FROM THE SEA</p><h1>海神来信</h1><p>把一点点想念，送到你的锁屏。💌</p></header>
+    <section class="letter" aria-label="固定测试通知"><div class="stamp">固定测试内容</div><h2>老公💌</h2><p>老婆，今天也想你了。🐟💗</p></section>
+    <p id="capabilities" class="hint" role="status">正在检查推送能力…</p>
+    <section class="card"><h2>1 · 连接你自己的后台</h2><p>这里只连接你亲自部署的 Worker。不会读取小家的聊天、角色卡、记忆或模型密钥。</p>
+        <label for="worker-url">Worker HTTPS 地址</label><input id="worker-url" type="url" placeholder="https://haishen-push-test.你的子域.workers.dev" autocapitalize="none" spellcheck="false" autocomplete="off">
+        <button id="connect" type="button">连接测试后台</button>
+    </section>
+    <section class="card"><h2>2 · 允许通知，配对本机</h2><p>iPhone 请先“分享 → 添加到主屏幕”，再从图标打开。配对码由你在管理员终端生成，15 分钟内有效，只能用一次。</p>
+        <label for="pairing-code">一次性设备配对码</label><input id="pairing-code" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="粘贴你自己生成的配对码">
+        <button id="subscribe" type="button" disabled>允许通知并注册本机</button>
+        <p id="device-state" class="hint">还没有设备凭证。</p>
+    </section>
+    <section class="card"><h2>3 · 送一封测试来信</h2><p>不会调用模型。按钮只向本机发送上面的固定内容，不会添加到 v2 留言箱或主线。</p>
+        <div class="buttons"><button id="send-now" type="button" disabled>立即发送真实 Web Push</button><button id="send-later" class="secondary" type="button" disabled>15 秒后发送一次，再去锁屏</button></div>
+        <p class="hint">延迟仅由本次点击安排，不是循环定时任务。提交后立即离开 App 并锁屏。最稳妥的测试：先锁屏，再在另一台设备的管理员终端发送。</p>
+        <button id="check-job" class="secondary" type="button" disabled>查询上一次发送状态</button>
+        <p id="job-state" class="hint">尚未发送。服务端接受不等于锁屏已显示。</p>
+        <button id="revoke" class="quiet" type="button" disabled>注销本机测试订阅</button>
+    </section>
+    <p id="status" class="status" role="status" aria-live="polite">通知权限不会在页面打开时自动申请。</p>
+    <section class="card"><h2>这台设备收到的测试来信</h2><p id="clicked-notice" class="hint"></p><ol id="notices"><li>暂时没有本机接收记录。</li></ol><p class="hint">仅记录测试通知，不同步私人聊天。锁屏预览、专注模式和网络状况由 iOS 管理。</p></section>
+    <footer>保留原小家，单独测试来信。<br>无 Gemini · 无聊天上传 · 无自动定时任务</footer>
+</main>
+</body>
+</html>

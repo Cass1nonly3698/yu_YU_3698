@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "海神来信",
+  "short_name": "海神来信",
+  "description": "老公的一封小小来信 · 独立 Web Push 测试",
+  "lang": "zh-CN",
+  "start_url": "./push-test.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f8fc",
+  "theme_color": "#1c5872",
+  "icons": [
+    { "src": "assets/pwa/haishen-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/pwa/haishen-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
