@@ -25,7 +25,8 @@
         (function (stamp) {
             document.write('<script src="assets/js/tailwind-theme.js?v=' + stamp + '"><\/script>'
                 + '<link rel="stylesheet" href="assets/css/theme.css?v=' + stamp + '">'
-                + '<link rel="stylesheet" href="assets/css/styles.css?v=' + stamp + '">');
+                + '<link rel="stylesheet" href="assets/css/styles.css?v=' + stamp + '">'
+                + '<link rel="stylesheet" href="assets/css/cottage-atmosphere.css?v=' + stamp + '">');
         })(Date.now());
     </script>
 </head>
@@ -108,7 +109,9 @@
 
 
             <!-- Chat View -->
-            <div v-show="currentView === 'chat'" class="chat-view-root flex flex-col h-full relative">
+            <div v-show="currentView === 'chat'" class="chat-view-root cottage-room flex flex-col h-full relative"
+                :data-cottage-active="activeStoryBranchId === 'main' ? 'true' : 'false'">
+                <div data-cottage-host></div>
 
                 <!-- Character Background Layer -->
                 <div v-if="settings.useCharacterBackground && currentCharacter?.avatar"
@@ -210,7 +213,7 @@
                 </transition>
 
                 <!-- Chat Header -->
-                <div class="absolute top-0 left-0 right-0 z-10 pointer-events-none">
+                <div class="cottage-header absolute top-0 left-0 right-0 z-10 pointer-events-none">
                     <div class="chat-header-scrim"></div>
                     <!-- 实际内容容器 -->
                     <div class="relative h-12 flex items-center justify-between px-4 pointer-events-auto">
@@ -261,7 +264,7 @@
                 <!-- Chat Messages -->
                 <div ref="chatContainer" @click="showChatModelSelector = false"
                     @scroll="handleChatScroll"
-                    class="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-14 md:pt-16 pb-52 md:pb-60 relative z-0 space-y-12 md:space-y-14"
+                    class="cottage-message-scroll flex-1 overflow-y-auto overflow-x-hidden px-2 pt-14 md:pt-16 pb-52 md:pb-60 relative z-0 space-y-12 md:space-y-14"
                     :class="!settings.useCharacterBackground || !currentCharacter?.avatar ? 'chat-ambient' : ''">
                     <div v-if="!currentCharacter" class="chat-empty">
                         <div class="chat-empty__icon">
@@ -2570,7 +2573,7 @@
     <script>
         (function (stamp) {
             ['built-in-content', 'core-utils', 'api-utils', 'data-services', 'runtime-services', 'cloud-backup',
-                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'app'].forEach(name => {
+                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'app', 'cottage-atmosphere'].forEach(name => {
                 document.write('<script src="assets/js/' + name + '.js?v=' + stamp + '"><\/script>');
             });
         })(Date.now());
