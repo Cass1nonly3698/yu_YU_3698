@@ -1,7 +1,6 @@
 /* Photo atmosphere is visual-only and scoped to the main-chat surface. */
 .cottage-room[data-cottage-active="true"] {
     isolation: isolate;
-    --room-photo: url('../images/cottage/balcony-day-v2.png');
     --room-photo-position: 58% 54%;
     --room-wall: #b6cbd6; --room-paper: #fffdf8; --room-user: #edf3ef;
     --room-ink: #25313b; --room-muted: #465460; --room-edge: rgba(255,255,255,.34);
@@ -24,12 +23,10 @@
     background: var(--room-wall); color: var(--room-ink);
 }
 .cottage-room[data-cottage-active="true"][data-cottage-phase="dusk"] {
-    --room-photo: url('../images/cottage/balcony-dusk-v2.png');
     --room-wall: #c8b1a7; --room-paper: #fffaf5; --room-user: #f5ebe2;
     --room-accent: #795f53; --room-glass-rgb: 255 250 244; --room-user-rgb: 249 237 225;
 }
 .cottage-room[data-cottage-active="true"][data-cottage-phase="night"] {
-    --room-photo: url('../images/cottage/balcony-night-v2.png');
     --room-wall: #18283b; --room-paper: #f5f8fb; --room-user: #f1ece4;
     --room-ink: #24313e; --room-muted: #445462; --room-accent: #4b6475;
     --room-glass-rgb: 245 249 253; --room-glass-alpha: .82;
@@ -42,7 +39,7 @@
     display: block; position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: -1;
 }
 .cottage-photo {
-    position: absolute; inset: 0; background-image: var(--room-photo);
+    position: absolute; inset: 0;
     background-position: var(--room-photo-position); background-size: cover; background-repeat: no-repeat;
     /* Root anchored, not scroll-content anchored; no iOS background-attachment:fixed. */
 }
@@ -90,14 +87,19 @@
 .cottage-chevron { font-size: 17px; margin-top: -4px; }
 .cottage-popover {
     position: absolute; top: calc(100% + 10px); right: -80px; width: 306px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px); overflow-y: auto;
     padding: 21px; border: 1px solid var(--room-edge); border-radius: 18px;
     background: var(--room-paper); color: var(--room-ink); box-shadow: 0 12px 45px rgba(10,30,45,.16);
 }
 .cottage-eyebrow { color: var(--room-muted); font-size: 12px; letter-spacing: .12em; margin: 0 0 6px; }
 .cottage-popover h2 { font: 600 18px var(--font-serif,serif); margin: 0 0 20px; }
 .cottage-options { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+.cottage-scene-field { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+.cottage-scene-field legend { font-weight: 600; margin-bottom: 8px; padding: 0; }
+.cottage-scene-options { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .cottage-options button { display: flex; flex-direction: column; gap: 8px; align-items: center; padding: 12px 4px; border: 1px solid #cfd9d5; border-radius: 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .cottage-options button span { font-size: 23px; line-height: 1.2; }
+.cottage-scene-options button { justify-content: center; min-height: 44px; padding: 8px 4px; }
 .cottage-options button[aria-pressed="true"],.cottage-auto[aria-pressed="true"] { background: var(--room-user); border-color: var(--room-accent); }
 .cottage-auto { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 12px; margin-top: 12px; border: 1px solid #cfd9d5; border-radius: 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .cottage-schedule,.cottage-privacy,.cottage-save-status { font-size: 12px; line-height: 1.7; color: var(--room-muted); margin: 12px 0 0; }
