@@ -1409,6 +1409,26 @@ const app = createApp({
             saveAll: () => saveData(),
             toast: (...args) => showToast(...args)
         });
+        const openFullLocalBackup = async () => {
+            if (isConversationBusy.value || isClassicBatchExtracting.value) {
+                showToast('请先结束聊天生成与记忆任务，再进入完整备份', 'warning');
+                return;
+            }
+            try {
+                if (!await saveData()) { showToast('当前资料未能保存，已取消进入完整备份', 'error'); return; }
+                await flushPendingChatHistorySave();
+                // A readonly transaction waits for earlier store writes to finish before leaving this page.
+                await new Promise((resolve, reject) => {
+                    const tx = getMainDb().transaction('store', 'readonly');
+                    tx.oncomplete = resolve;
+                    tx.onerror = tx.onabort = () => reject(new Error('备份前保存核对失败'));
+                });
+            } catch (_) {
+                showToast('保存核对失败，已取消进入完整备份，请保留当前页面并重试', 'error');
+                return;
+            }
+            window.location.assign(new URL('full-backup.html', window.location.href).href);
+        };
         // Export Modal State
         const showExportModal = ref(false);
         const exportType = ref(null); // 'presets', 'regex', 'worldinfo', 'uitemplates'
@@ -1658,7 +1678,7 @@ const app = createApp({
                 // Save Chat State
                 if (currentCharacterIndex.value >= 0) {
                     await setStoredValue('last_active_char', currentCharacterIndex.value);
-                    await saveChatHistoryNow();
+                    if (await saveChatHistoryNow() === false) return false;
                 }
 
                 // Save Memory State
@@ -1666,11 +1686,13 @@ const app = createApp({
                 if (saveMemories) {
                     await saveClassicMemoriesNow();
                 }
+                return true;
             } catch (e) {
                 console.error('Save failed:', e);
                 if (e.name === 'QuotaExceededError') {
                     showToast('存储空间不足，无法保存', 'error');
                 }
+                return false;
             }
         };
 
@@ -8441,7 +8463,7 @@ const app = createApp({
             processMainContent, replaceUserNamePlaceholder,
             currentView, showDescriptionPanel, showModelSelector, modelSelectionTarget, openModelSelector, showChatModelSelector, showCharacterEditor, showAddCharacterMenu, showPresetEditor, showUiTemplateEditor,
             showActiveToolEditor,
-            showExportModal, exportItems, selectedExportIndices, // Export Modal
+            showExportModal, exportItems, selectedExportIndices, openFullLocalBackup, // Export Modal
             showContextViewerModal, lastContextMessages, lastTriggeredWorldInfos,
             lastContextTotalLength, // Context Viewer
             showStoryBranchModal, showStoryBranchNameEditor, storyBranchNameDraft,
@@ -8807,4 +8829,4 @@ const app = createApp({
 // 公共弹窗部件需要全局注册，供其他弹窗组件内部直接复用。
 app.component('ModalShell', ModalShell);
 app.component('ModalHeader', ModalHeader);
-app.mount('#app');
+window.RPHubBackupGate.start(() => app.mount('#app'));
