@@ -6,6 +6,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/pwa/haishen-180.png">
     <meta name="apple-mobile-web-app-title" content="海神来信">
+    <script src="assets/js/full-backup-gate.js"></script>
     <script src="assets/js/theme.js"></script>
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
@@ -1704,6 +1705,9 @@
                                     <button type="button" @click="openCloudBackup('download')" class="settings-action gap-2 min-h-[2.875rem]">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                                         下载备份
+                                    </button>
+                                    <button type="button" @click="openFullLocalBackup" class="settings-action gap-2 min-h-[2.875rem]">
+                                        完整备份与恢复 · 本地加密
                                     </button>
                                 </div>
                             </div>
