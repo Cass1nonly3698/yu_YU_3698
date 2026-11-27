@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
+    <title>完整备份与恢复 · RP-Hub</title>
+    <link rel="stylesheet" href="assets/css/full-backup.css">
+    <script src="assets/js/full-backup.js" defer></script>
+    <script src="assets/js/full-backup-ui.js" defer></script>
+</head>
+<body>
+    <main>
+        <nav><a id="return-home" href="./index.html">← 回小家</a><span>RP-HUB · LOCAL BACKUP</span></nav>
+        <header><div class="seal" aria-hidden="true">↗</div><p class="eyebrow">把共同经历，好好保存</p><h1>完整备份与恢复</h1><p class="intro">一个密码，一份加密文件。角色、聊天和共同记忆一起带走。</p></header>
+        <aside class="privacy"><span aria-hidden="true">◇</span><p><strong>文件只在本机处理</strong><br>包含模型密钥等私人配置，请妥善保管文件和密码。密码无法找回。原有推送身份始终留在这台设备。</p></aside>
+        <p class="notice">请先结束生成与记忆任务，并关闭其他新家窗口。这里只备份已保存资料，不包含未发送草稿。128 MiB 为本版解密数据安全上限，超限会停止，不会删减资料。</p>
+        <section id="recovery" hidden class="card recovery">
+            <p class="eyebrow">先把上一次恢复处理好</p><h2>检测到未完成的恢复</h2>
+            <p>聊天暂未初始化。请输入当时的备份密码，继续核对恢复，或回到恢复前资料。</p>
+            <label>恢复密码<input id="recovery-password" type="password" autocomplete="off" minlength="10"></label>
+            <div class="actions"><button id="resume">继续恢复并验证</button><button id="rollback" class="secondary">回退到恢复前</button></div>
+        </section>
+        <div id="normal-tools">
+            <div class="tabs" role="tablist" aria-label="备份操作"><button id="export-tab" role="tab" aria-selected="true">导出完整备份</button><button id="restore-tab" role="tab" aria-selected="false">恢复备份</button></div>
+            <section id="export-panel" class="card" role="tabpanel" aria-labelledby="export-tab">
+                <p class="eyebrow">01 · 留一份安心</p><h2>保存这个小家</h2>
+                <p>保留角色 UUID、所有分支、总结及原始向量、世界书、预设、设置和海神小纸条。</p>
+                <label>加密密码<input id="export-password" type="password" autocomplete="new-password" minlength="10" placeholder="至少 10 个字符"></label>
+                <label>再次输入密码<input id="export-confirm" type="password" autocomplete="new-password" minlength="10" placeholder="请再输入一次"></label>
+                <button id="export-button" class="wide">生成完整备份文件 <span aria-hidden="true">↓</span></button>
+                <p class="footnote">原有普通备份继续保留。本文件不使用云端取件码，也不会上传服务器。</p>
+            </section>
+            <section id="restore-panel" class="card" role="tabpanel" aria-labelledby="restore-tab" hidden>
+                <p class="eyebrow">02 · 把经历接回来</p><h2>恢复到这个小家</h2>
+                <p>先解密、预检，再由你确认。备份外的目标资料保留；备份内的同名资料若有变化，会明确列为冲突。</p>
+                <label class="file-label">完整备份文件<input id="backup-file" type="file" accept=".rphub,application/json"></label>
+                <label>备份密码<input id="restore-password" type="password" autocomplete="off" minlength="10"></label>
+                <button id="preflight" class="wide secondary">解密并预检</button>
+                <div id="preview" hidden>
+                    <div class="divider"></div><h3>备份资料清单</h3><p id="backup-meta"></p><dl id="counts" class="counts"></dl>
+                    <p id="change-summary"></p><ul id="changes" class="changes"></ul>
+                    <label class="check"><input id="confirm-restore" type="checkbox"><span>我已核对清单，同意按备份恢复列出的资料；存在冲突时，以备份中的对应资料为准。</span></label>
+                    <button id="restore-button" class="wide" disabled>确认恢复并验证</button>
+                    <p class="footnote">写入前保留加密回退记录。中断后使用同一密码继续或回退；请保管原文件。</p>
+                </div>
+            </section>
+        </div>
+        <div id="status" role="status" aria-live="polite" hidden></div>
+        <footer>迁移验证通过前，请保留 Safari 原数据。<br>北京时间扩展在 PWA 中的行为需另做真机验收。</footer>
+    </main>
+</body>
+</html>
