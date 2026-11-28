@@ -61,25 +61,40 @@
             </path>
         </symbol>
     </svg>
-    <div class="entry-transition" aria-hidden="true">
-        <div class="entry-transition-brand">
-            <div class="entry-transition-book">
-                <svg viewBox="0 0 64 48" fill="none" aria-hidden="true">
-                    <path d="M4 8q14-6 28 0 14-6 28 0v34q-14-6-28 0-14-6-28 0Z" fill="#f6f9fe" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-                    <path d="M32 8v34" stroke="currentColor" stroke-width="1.5" />
-                    <path d="M10 16q8-3 16 0m-16 7q8-3 16 0m-16 7q8-3 12-1m16-13q8-3 16 0m-16 7q8-3 16 0m-16 7q8-3 12-1" stroke="currentColor" stroke-opacity=".3" stroke-linecap="round" />
-                </svg>
-                <svg class="entry-book-page" viewBox="0 0 28 48" fill="none" aria-hidden="true">
-                    <path d="M0 8q14-6 28 0v34q-14-6-28 0Z" fill="#f6f9fe" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-                    <path d="M6 16q8-3 16 0m-16 7q8-3 16 0m-16 7q8-3 12-1" stroke="currentColor" stroke-opacity=".3" stroke-linecap="round" />
-                </svg>
-            </div>
-            <div class="entry-transition-logo">
-                <span class="entry-logo-rp">RP</span>
-                <span class="entry-logo-hub">HUB</span>
-            </div>
-        </div>
+    <!-- Roleplay Hub by STA1N156, https://github.com/STA1N156/RP-Hub, CC BY-NC 4.0 (see LICENSE).
+         Modified: device-local entry video and settings. -->
+    <div id="local-opening" class="entry-transition" aria-hidden="true" hidden>
+        <video muted playsinline disablepictureinpicture preload="none"></video>
     </div>
+    <dialog id="local-opening-settings" class="local-opening-settings" aria-labelledby="local-opening-title">
+        <div class="local-opening-settings__header">
+            <h2 id="local-opening-title" class="settings-subheading">本机开场视频</h2>
+            <form method="dialog"><button type="submit" class="settings-action" autofocus>关闭</button></form>
+        </div>
+        <p>MP4，最多 5 MiB、5 秒。仅存本机，完整备份及云备份均不含此视频。</p>
+        <input type="file" accept="video/mp4,.mp4" aria-label="选择开场视频" hidden>
+        <div class="local-opening-settings__actions">
+            <button type="button" class="settings-action" data-opening-action="choose" disabled>导入视频</button>
+            <button type="button" class="settings-action" data-opening-action="preview" disabled>预览</button>
+            <button type="button" class="settings-action" data-opening-action="remove" disabled>移除</button>
+        </div>
+        <p role="status"></p>
+        <video class="local-opening-settings__preview" aria-label="开场视频预览"
+            muted playsinline disablepictureinpicture preload="none" hidden></video>
+    </dialog>
+    <script>
+        (function () {
+            const opening = document.getElementById('local-opening');
+            opening.dataset.deadline = String(performance.now() + 400);
+            const firstInteraction = new AbortController();
+            const skip = () => { opening.dataset.skip = ''; firstInteraction.abort(); };
+            for (const name of ['pointerdown', 'keydown']) {
+                document.addEventListener(name, skip, { capture: true, signal: firstInteraction.signal });
+            }
+            setTimeout(() => firstInteraction.abort(), 400);
+        })();
+    </script>
+    <script async src="assets/js/local-opening.js?v=1"></script>
 
     <div id="app" v-cloak class="h-full flex flex-col md:flex-row relative"
         :class="{ 'app-native-fullscreen': isChatFullscreen, 'mobile-keyboard-active': isMobileKeyboardOpen }">
@@ -1718,6 +1733,13 @@
                                 </label>
                                 <p class="text-xs text-gray-500">Safari 若仍运行旧脚本，先停用该站点的旧时间脚本再使用原生模式。</p>
                                 <p v-if="realTimeSettingsStatus" role="status" class="text-xs text-gray-600">{{ realTimeSettingsStatus }}</p>
+                            </section>
+
+                            <section class="pt-6 border-t border-gray-100 space-y-3" id="local-opening-settings-entry"
+                                aria-labelledby="local-opening-settings-heading">
+                                <h4 id="local-opening-settings-heading" class="settings-subheading">开场视频</h4>
+                                <button type="button" class="settings-action min-h-[2.875rem]" data-open-local-opening
+                                    aria-haspopup="dialog" aria-controls="local-opening-settings">设置本机开场视频</button>
                             </section>
 
                             <!-- Backup & Transfer: the details live in its dialog -->
