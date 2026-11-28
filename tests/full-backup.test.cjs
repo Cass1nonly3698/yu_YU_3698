@@ -66,6 +66,86 @@ test('restore to empty application preserves all IDs, raw text, summaries, setti
     const result = await env.api.restore(plan, PASSWORD, { planDigest: plan.planDigest }); assert.equal(result.status, 'verified');
     assert.equal(await env.api.fingerprint(await env.api.capture()), archive.digest); assert.equal(env.api.pending(), null);
 });
+const settingsRow = data => data.records.find(row => row.key === 'rp_hub_settings').value;
+const timePreference = { version: 1, mode: 'manual', ianaZone: 'Africa/Cairo' };
+test('v1 round-trips three time modes and assistant display metadata without changing raw chat or exporting legacy-script mode', async () => {
+    const modes = [{ version: 1, mode: 'beijing' }, { version: 1, mode: 'device' }, timePreference];
+    for (const preference of modes) {
+        const from = environment(), target = environment(), data = fixture();
+        settingsRow(data).realTimePreference = preference;
+        const messages = data.records.find(r => r.key === 'rp_hub_chat_char-a__branch__side').value;
+        messages[1].realTimeDisplay = { version: 1, instant: Date.parse('2026-11-28T17:00:00Z'),
+            zone: 'Africa/Cairo', offsetMinutes: 120, localMinute: '2026-11-28T19:00' };
+        await seed(from, data);
+        from.storage.setItem('rp_hub_real_time_external_v1', '1');
+        target.storage.setItem('rp_hub_real_time_external_v1', 'target-local-only');
+        const encrypted = await from.api.backup(PASSWORD);
+        assert.equal(JSON.parse(encrypted.text).version, 1);
+        const incoming = await target.api.decrypt(encrypted.text, PASSWORD);
+        const plan = await target.api.preflight(incoming);
+        assert.equal(plan.keepsTimePreference, false);
+        await target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest });
+        assert.equal(await target.api.fingerprint(await target.api.capture()), await from.api.fingerprint(await from.api.capture()));
+        assert.equal(target.storage.getItem('rp_hub_real_time_external_v1'), 'target-local-only');
+    }
+});
+
+test('an encrypted old backup missing the preference preserves the target zone while restoring other settings', async () => {
+    const target = environment(), data = fixture();
+    settingsRow(data).realTimePreference = timePreference;
+    settingsRow(data).fontSize = 12;
+    target.storage.setItem('rp_hub_real_time_external_v1', '1');
+    await seed(target, data);
+    const plan = await target.api.preflight(archive);
+    assert.equal(plan.keepsTimePreference, true);
+    assert.ok(plan.changes.some(change => change.key === 'rp_hub_settings' && change.conflict));
+    assert.equal(await target.api.fingerprint(await target.api.capture()), plan.targetDigest);
+    await target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest, replaceConflicts: true });
+    const result = await target.api.capture();
+    assert.deepEqual(settingsRow(result), { ...settingsRow(archive.data), realTimePreference: timePreference });
+    assert.equal(await target.api.fingerprint(result), plan.afterDigest);
+    assert.equal((await target.api.preflight(archive)).changes.length, 0);
+    assert.equal(target.storage.getItem('rp_hub_real_time_external_v1'), '1');
+});
+
+test('an explicit new preference is a normal settings conflict and interrupted restore rolls it back', async () => {
+    const from = environment(), target = environment(), sourceData = fixture(), targetData = fixture();
+    settingsRow(sourceData).realTimePreference = { version: 1, mode: 'device' };
+    settingsRow(targetData).realTimePreference = timePreference;
+    await seed(from, sourceData);
+    await seed(target, targetData);
+    const plan = await target.api.preflight(await target.api.decrypt((await from.api.backup(PASSWORD)).text, PASSWORD));
+    assert.equal(plan.keepsTimePreference, false);
+    assert.ok(plan.changes.some(change => change.key === 'rp_hub_settings' && change.conflict));
+    await assert.rejects(target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest }), code('CONFIRM'));
+    target.state.failpoint = stage => { if (stage === 'after-main') throw Object.assign(new Error('synthetic crash'), { code: 'SIMULATED_CRASH' }); };
+    await assert.rejects(target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest, replaceConflicts: true }), code('SIMULATED_CRASH'));
+    assert.deepEqual(settingsRow(await target.api.capture()).realTimePreference, { version: 1, mode: 'device' });
+    target.state.failpoint = null;
+    assert.equal((await backup.create(target.options).recover(PASSWORD, 'rollback')).status, 'rolled-back');
+    const data = await target.api.capture();
+    assert.deepEqual(settingsRow(data).realTimePreference, timePreference);
+    assert.equal(await target.api.fingerprint(data), plan.targetDigest);
+});
+
+test('a display-only chat difference in an older archive never clears existing summaries', async () => {
+    const from = environment(), target = environment(), sourceData = fixture(), targetData = fixture();
+    const chatKey = 'rp_hub_chat_char-a', memoryKey = 'rp_hub_classic_memories_char-a';
+    sourceData.records = sourceData.records.filter(row => row.key !== memoryKey);
+    targetData.records.find(row => row.key === chatKey).value[1].realTimeDisplay = {
+        version: 1, instant: Date.parse('2026-11-28T12:00:00Z'), zone: 'Asia/Shanghai',
+        offsetMinutes: 480, localMinute: '2026-11-28T20:00'
+    };
+    await seed(from, sourceData);
+    await seed(target, targetData);
+    const plan = await target.api.preflight(await target.api.decrypt((await from.api.backup(PASSWORD)).text, PASSWORD));
+    assert.ok(plan.changes.some(change => change.key === chatKey && change.conflict));
+    assert.equal(plan.changes.some(change => change.key === memoryKey), false);
+    await target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest, replaceConflicts: true });
+    const restored = await target.api.capture();
+    assert.deepEqual(restored.records.find(row => row.key === memoryKey).value, targetData.records.find(row => row.key === memoryKey).value);
+});
+
 test('same character card with newer backed-up chat is compared per record, not skipped', async () => {
     const env = environment(), target = fixture(); target.records.find(x => x.key === 'rp_hub_chat_char-a').value[0].content = '合成旧原文'; await seed(env, target);
     const plan = await env.api.preflight(archive); assert.ok(plan.changes.some(x => x.key === 'rp_hub_chat_char-a' && x.conflict));
