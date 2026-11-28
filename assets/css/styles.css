@@ -45,9 +45,7 @@ body {
 }
 
 .app-logo,
-.app-logo *,
-.entry-transition-logo,
-.entry-transition-logo * {
+.app-logo * {
     font-family: var(--font-serif) !important;
 }
 
@@ -124,103 +122,66 @@ html:-webkit-full-screen #app .app-main {
     position: fixed;
     inset: 0;
     z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     overflow: hidden;
     pointer-events: none;
     opacity: 0;
-    visibility: hidden;
-    background:
-        radial-gradient(60% 50% at 28% 18%, rgb(var(--primary-200) / 0.55), transparent 70%),
-        radial-gradient(50% 45% at 80% 88%, rgba(128, 196, 186, 0.28), transparent 70%),
-        var(--c-canvas);
-    animation: entry-screen-out 0.7s var(--ease-in-out) 1.5s backwards;
+    background: #112c42;
 }
 
-.entry-transition-brand {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 24px;
-    color: var(--c-text);
-    animation: entry-brand 2.2s var(--ease-out) 0.05s backwards;
-}
+.entry-transition.is-playing { opacity: 1; }
+.entry-transition.is-fading { opacity: 0; transition: opacity 240ms ease-out; }
+.entry-transition[hidden] { display: none; }
 
-.entry-transition-book {
-    position: relative;
-    width: 80px;
-    height: 60px;
-    margin-bottom: 26px;
-    color: rgb(var(--primary-400));
-    perspective: 275px;
-}
-
-.entry-transition-book svg { display: block; width: 100%; height: 100%; }
-.entry-transition-book path[fill] { fill: var(--c-surface); }
-
-.entry-transition-book .entry-book-page {
-    position: absolute;
-    left: 50%;
-    top: 0;
-    width: 43.75%;
-    height: 100%;
-    overflow: visible;
-    opacity: 0;
-    transform-origin: left center;
-    animation: entry-page-turn 1.2s cubic-bezier(0.45, 0, 0.35, 1) 0.18s backwards;
-}
-
-.entry-transition-logo { display: inline-flex; align-items: baseline; gap: 0.55rem; line-height: 1; }
-
-.entry-logo-rp {
-    position: relative;
-    font-size: clamp(2rem, 6.5vw, 2.6rem);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-}
-
-.entry-logo-rp::before,
-.entry-logo-rp::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    bottom: -5px;
+.entry-transition video {
+    display: block;
     width: 100%;
-    height: 3px;
-    border-radius: 999px;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
 }
 
-.entry-logo-rp::before { background: rgb(var(--gray-200)); }
-
-.entry-logo-rp::after {
-    background: linear-gradient(90deg, rgb(var(--primary-500)), #7cc2b5);
-    transform-origin: left center;
-    animation: entry-progress-in 1.2s cubic-bezier(0.2, 0.6, 0.3, 1) 0.35s backwards;
+@media (prefers-reduced-motion: reduce) {
+    .entry-transition { display: none; }
 }
 
-.entry-logo-hub {
-    font-size: clamp(1.35rem, 4.5vw, 1.75rem);
-    font-weight: 500;
-    color: rgb(var(--primary-text-500, var(--primary-500)));
-    letter-spacing: 0.14em;
+html:not(.local-opening-ready) #local-opening-settings-entry { display: none; }
+
+.local-opening-settings {
+    position: fixed;
+    inset: 0;
+    width: min(31rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    margin: auto;
+    padding: 1.25rem;
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-lg);
+    color: var(--c-text);
+    background: var(--c-surface);
+    box-shadow: var(--shadow-2);
+    overflow: auto;
 }
 
-@keyframes entry-brand {
-    0% { opacity: 0; transform: translateY(28px); filter: blur(6px); }
-    40% { opacity: 1; transform: none; filter: none; }
-    100% { transform: scale(1.015); }
+.local-opening-settings::backdrop { background: rgba(12, 24, 40, .55); }
+.local-opening-settings > * + * { margin-top: .75rem; }
+.local-opening-settings p { font-size: .875rem; }
+.local-opening-settings__header,
+.local-opening-settings__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
 }
-@keyframes entry-progress-in { from { transform: scaleX(0); } }
-@keyframes entry-page-turn {
-    0% { opacity: 0; transform: rotateY(0deg); }
-    12%, 80% { opacity: 1; }
-    100% { opacity: 0; transform: rotateY(-180deg); }
+.local-opening-settings__header { justify-content: space-between; }
+.local-opening-settings .settings-action { min-height: 2.75rem; }
+.local-opening-settings__preview {
+    display: block;
+    width: 100%;
+    height: min(40vh, 22rem);
+    object-fit: contain;
+    background: #112c42;
+    border-radius: var(--r-lg);
 }
-@keyframes entry-screen-out {
-    from { opacity: 1; visibility: visible; }
-    to { opacity: 0; visibility: hidden; }
-}
+.local-opening-settings__preview[hidden] { display: none; }
 
 /* ==========================================================================
    Shared motion
