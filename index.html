@@ -129,7 +129,8 @@
             @update:current-view="currentView = $event"
             @close="closeNavigation"></app-navigation>
 
-        <div class="app-main flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative" :inert="isNavigationOpen">
+        <div class="app-main flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative" :inert="isNavigationOpen"
+            :class="{ 'memory-citations-hidden': !settings.showMemoryCitations }">
 
 
 
@@ -569,6 +570,11 @@
                                                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
                                                 </path>
                                             </svg>
+                                        </button>
+                                        <button v-if="messageMemoryCitationNos(msg)"
+                                            @click="showMemoryCitation(messageMemoryCitationNos(msg))"
+                                            class="message-style-filter-button" title="查看这条回复的记忆依据">
+                                            记忆依据
                                         </button>
                                         <button @click="editMessage(index)"
                                             class="message-action-button"
@@ -1691,6 +1697,15 @@
                                     </div>
                                 </label>
                             </div>
+
+                            <label class="settings-toggle-row group">
+                                <span class="text-sm font-medium text-gray-600">显示正文记忆引用</span>
+                                <div class="relative inline-flex flex-none items-center">
+                                    <input type="checkbox" v-model="settings.showMemoryCitations" class="settings-toggle-input sr-only">
+                                    <div class="settings-toggle"></div>
+                                </div>
+                            </label>
+                            <p class="text-xs text-gray-500">开启后显示正文下划线和引用角标；关闭时仍可从消息操作区查看「记忆依据」。</p>
 
                             <!-- Font Settings -->
                             <div class="pt-6 border-t border-gray-100 mt-6">

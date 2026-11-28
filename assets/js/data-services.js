@@ -1295,13 +1295,15 @@
                     });
                     // 卡片里的记忆引用 [M12]：借父页面同一套处理加角标，点击回到父页面打开判断依据。
                     var citations = window.parent && window.parent.RPHubMemoryCitations;
-                    if (citations && citations.decorate(document)) {
+                    if (citations) {
+                        citations.decorate(document);
                         var citationStyle = document.createElement('style');
+                        citationStyle.setAttribute('data-memory-citation-style', '');
                         citationStyle.textContent = citations.frameStyle();
                         document.head.appendChild(citationStyle);
                         document.addEventListener('click', function(event) {
                             var cite = event.target.closest && event.target.closest('.memory-cite, .memory-cite-text');
-                            if (cite) citations.open(cite.getAttribute('data-memory-nos'));
+                            if (cite && citations.visible()) citations.open(cite.getAttribute('data-memory-nos'));
                         });
                     }
                     updateHeight();

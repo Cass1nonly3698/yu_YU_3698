@@ -259,3 +259,22 @@ test('tagged codec preserves typed bytes, undefined and literal prototype-like o
     const decoded = backup.unpack(backup.pack(value)); assert.deepEqual(decoded, value); assert.equal({}.x, undefined);
     assert.throws(() => backup.unpack(['typed', '__proto__', 'AA==']), code('FORMAT'));
 });
+
+test('memory citation display preference round-trips encrypted restore with raw markers and source memories intact', async () => {
+    for (const showMemoryCitations of [false, true]) {
+        const from = environment(), target = environment(), data = fixture();
+        // A display-only toggle writes the preference record; the older settings copy can be stale.
+        data.records.find(r => r.key === 'rp_hub_settings').value.showMemoryCitations = !showMemoryCitations;
+        data.records.find(r => r.key === 'rp_hub_chat_preferences_v2').value.showMemoryCitations = showMemoryCitations;
+        data.records.find(r => r.key === 'rp_hub_chat_char-a').value[1].content += '[M3][M4]';
+        await seed(from, data);
+        const before = await from.api.capture();
+        const archive = await target.api.decrypt((await from.api.backup(PASSWORD)).text, PASSWORD);
+        const plan = await target.api.preflight(archive);
+        await target.api.restore(plan, PASSWORD, { planDigest: plan.planDigest });
+        const after = await target.api.capture();
+        assert.equal(await target.api.fingerprint(after), await from.api.fingerprint(before));
+        assert.equal(after.records.find(r => r.key === 'rp_hub_chat_preferences_v2').value.showMemoryCitations, showMemoryCitations);
+        assert.ok(after.records.find(r => r.key === 'rp_hub_chat_char-a').value[1].content.endsWith('[M3][M4]'));
+    }
+});
