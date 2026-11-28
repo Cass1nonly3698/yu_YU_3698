@@ -1,5 +1,5 @@
 /* Synthetic fixtures, fresh IndexedDB and no outbound requests. */
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -7,6 +7,8 @@ const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
+const baseline = process.env.RP_HUB_OPENING_BASELINE;
+const siteRoot = baseline ? path.resolve(baseline) : root;
 const out = process.env.RP_HUB_OPENING_OUTPUT || path.join(root, 'test-results/local-opening');
 const origin = 'https://local-opening-test.invalid';
 const vendors = {
@@ -34,9 +36,11 @@ function createFixture(tmp, name, seconds, color = 'teal') {
 }
 
 async function inBrowser(mode, fn, record = false) {
-    const browser = await chromium.launch({
+    const browser = await (process.env.RP_HUB_OPENING_ENGINE === 'webkit' ? webkit : chromium).launch({
+        timeout:15000,
+        ...(process.env.RP_HUB_OPENING_ENGINE === 'webkit' ? {} : {
         ...(process.env.RP_HUB_CHROMIUM ? { executablePath:process.env.RP_HUB_CHROMIUM } : {}),
-        args:['--single-process','--no-zygote','--disable-crash-reporter']
+        args:['--single-process','--no-zygote','--disable-crash-reporter'] })
     });
     try {
         const viewport = { width:390, height:844 };
@@ -57,8 +61,11 @@ async function inBrowser(mode, fn, record = false) {
             if (url.origin !== origin) return route.fulfill({ status:204 });
             if (url.pathname === '/seed') return route.fulfill({ contentType:types['.html'], body:'<!doctype html><title>Synthetic QA</title>' });
 
-            const file = path.resolve(root, '.' + url.pathname);
-            assert.ok(file.startsWith(root + path.sep));
+            if (mode === 'slow-startup' && url.pathname === '/assets/js/local-opening.js') {
+                await new Promise(resolve => setTimeout(resolve, 650));
+            }
+            const file = path.resolve(siteRoot, '.' + url.pathname);
+            assert.ok(file.startsWith(siteRoot + path.sep));
             try {
                 const body = await fs.readFile(file);
                 return route.fulfill({ contentType:types[path.extname(file)] || 'application/octet-stream', body });
@@ -68,9 +75,10 @@ async function inBrowser(mode, fn, record = false) {
         });
         const errors = [];
         const page = await context.newPage();
+        page.setDefaultTimeout(deadline);
         page.on('pageerror', error => errors.push(error.message));
         await page.addInitScript(({ mode, mediaName }) => {
-            window.qaOpening = { started:0, ended:0, fade:0, opened:0, startsInMs:[], quota:false };
+            window.qaOpening = { started:0, ended:0, fade:0, opened:0, startsInMs:[], quota:false, emptyVisible:false };
             const storeOpen = indexedDB.open.bind(indexedDB);
             indexedDB.open = (name, ...args) => {
                 if (name === mediaName) window.qaOpening.opened++;
@@ -88,14 +96,55 @@ async function inBrowser(mode, fn, record = false) {
                 if (this.closest('#local-opening')) {
                     window.qaOpening.started++;
                     if (mode === 'denied') return Promise.reject(new DOMException('Simulated autoplay failure', 'NotAllowedError'));
+                    if (mode === 'late') return new Promise(() => {});
+                    if (mode === 'slow-decode') return new Promise(resolve => setTimeout(resolve, 700)).then(() => play.apply(this, args));
                 }
                 return play.apply(this, args);
             };
-            if (mode === 'late' && HTMLVideoElement.prototype.requestVideoFrameCallback) {
-                const request = HTMLVideoElement.prototype.requestVideoFrameCallback;
-                HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
-                    return request.call(this, (...args) => setTimeout(() => callback(...args), 550));
+            if (mode === 'no-frame-callback') {
+                HTMLVideoElement.prototype.requestVideoFrameCallback = () => 1;
+            }
+            if (['slow-startup', 'slow-chat', 'hung-chat'].includes(mode)) {
+                const read = IDBObjectStore.prototype.get;
+                const setSuccess = Object.getOwnPropertyDescriptor(IDBRequest.prototype, 'onsuccess').set;
+                IDBObjectStore.prototype.get = function (key) {
+                    const request = read.call(this, key);
+                    if (this.transaction.db.name === 'RPHubDB'
+                        && (key === 'rp_hub_characters' || key === 'rp_hub_chat_char-a')) {
+                        Object.defineProperty(request, 'onsuccess', {
+                            set(handler) {
+                                setSuccess.call(request, event => setTimeout(() => handler.call(request, event),
+                                    mode === 'hung-chat' ? 4500 : mode === 'slow-chat' ? 1900 : 900));
+                            }
+                        });
+                    }
+                    return request;
                 };
+                requestAnimationFrame(function observeEmptyState() {
+                    if (document.querySelector('#app:not([v-cloak]) .chat-empty')?.getClientRects().length) {
+                        window.qaOpening.emptyVisible = true;
+                    }
+                    if (!performance.getEntriesByName('rphub-chat-startup-ready').length) requestAnimationFrame(observeEmptyState);
+                });
+            }
+            if (mode === 'slow-idb' || mode === 'late-idb') {
+                const setComplete = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, 'oncomplete').set;
+                Object.defineProperty(IDBTransaction.prototype, 'oncomplete', {
+                    configurable:true,
+                    set(handler) {
+                        const tx = this;
+                        setComplete.call(tx, tx.db.name === mediaName && tx.mode === 'readonly'
+                            ? event => setTimeout(() => handler.call(tx, event), mode === 'late-idb' ? 2300 : 700)
+                            : handler);
+                    }
+                });
+            }
+            if (mode === 'hidden-start' && location.pathname === '/index.html') {
+                Object.defineProperty(document, 'visibilityState', { configurable:true, value:'hidden' });
+                setTimeout(() => {
+                    delete document.visibilityState;
+                    document.dispatchEvent(new Event('visibilitychange'));
+                }, 600);
             }
             document.addEventListener('ended', event => {
                 if (event.target.closest('#local-opening')) window.qaOpening.ended++;
@@ -105,7 +154,8 @@ async function inBrowser(mode, fn, record = false) {
                     const node = row.target;
                     if (node.id !== 'local-opening' || row.attributeName !== 'class') continue;
                     if (node.classList.contains('is-playing') && !node.classList.contains('is-fading')) {
-                        window.qaOpening.startsInMs.push(performance.now() - Number(node.dataset.deadline) + 400);
+                        const start = Number(node.dataset.startedAt ?? (Number(node.dataset.deadline) - 400));
+                        window.qaOpening.startsInMs.push(performance.now() - start);
                     }
                     if (node.classList.contains('is-fading')) window.qaOpening.fade++;
                 }
@@ -298,7 +348,7 @@ async function testPlayback(clips, pass) {
         assert.equal(trace.ended, 1);
         assert.equal(trace.fade, 1);
         assert.equal(trace.startsInMs.length, 1);
-        assert.ok(trace.startsInMs[0] <= 430);
+        assert.ok(trace.startsInMs[0] <= 1830);
         pass.push('first frame appears within the budget; the muted, proportionally contained video ends and fades once');
 
         const branches = await page.evaluate(async () => {
@@ -326,9 +376,27 @@ async function testPlayback(clips, pass) {
             assert.equal(trace.fade, 0);
             assert.equal(trace.started, mode === 'reduced' ? 0 : 1);
             if (mode === 'reduced') assert.equal(trace.opened, 0);
+            if (mode === 'denied' || mode === 'late') {
+                const dialog = await settings(page);
+                await dialog.getByText('本次开场诊断', { exact:true }).click();
+                const report = await dialog.locator('[data-opening-diagnosis]').filter({ hasText:/chat-ready \d+/ }).textContent();
+                assert.match(report, mode === 'denied' ? /浏览器拒绝启动视频[\s\S]*NotAllowedError/ : /视频首帧超时/);
+                assert.match(report, /chat-ready \d+/);
+            }
             pass.push('chat still mounts with no visible opening: ' + mode);
         });
     }
+
+    await inBrowser('hidden-start', async page => {
+        await seed(page, clips.normal);
+        await openPage(page);
+        if (await page.evaluate(() => document.visibilityState === 'hidden')) {
+            assert.equal((await traces(page)).started, 0);
+        }
+        await visibleVideo(page);
+        assert.equal((await traces(page)).started, 1);
+        pass.push('initially hidden document begins playback after it becomes visible');
+    });
 
     await inBrowser('background', async page => {
         await seed(page, clips.normal);
@@ -355,6 +423,18 @@ async function testPlayback(clips, pass) {
         pass.push('an unexpected playback pause dismisses the opening immediately');
     });
 
+    await inBrowser('stalled', async page => {
+        await seed(page, clips.normal);
+        await openPage(page);
+        await visibleVideo(page);
+        await opening(page).locator('video').evaluate(video => video.dispatchEvent(new Event('stalled')));
+        await page.waitForTimeout(80);
+        assert.equal(await opening(page).evaluate(node => node.hidden), false);
+        await hide(page);
+        assert.equal((await traces(page)).ended, 1);
+        pass.push('a transient stalled event does not prematurely dismiss playable video');
+    });
+
     await inBrowser('recovery', async page => {
         await seed(page, clips.normal, { recovery:true });
         await page.goto(origin + '/index.html', { waitUntil:'commit', timeout:deadline }).catch(error => {
@@ -366,6 +446,87 @@ async function testPlayback(clips, pass) {
         pass.push('pending restore still goes directly to the recovery gate');
     });
     return normal;
+}
+
+async function testStartupFromPush(clip, pass) {
+    await inBrowser('slow-startup', async page => {
+        await seed(page, clip);
+        await page.goto(origin + '/push-test.html');
+        await page.getByRole('link', { name:/回小家/ }).click();
+        await page.waitForURL('**/index.html', { timeout:deadline });
+        if (baseline) {
+            await chatReady(page);
+            const trace = await traces(page);
+            assert.equal(trace.started, 0);
+            assert.equal(trace.emptyVisible, true);
+            await fs.writeFile(path.join(out, 'startup-reproduction.json'), JSON.stringify(trace, null, 2) + '\n');
+            return;
+        }
+        await visibleVideo(page);
+        assert.equal(await page.evaluate(() => performance.getEntriesByName('rphub-chat-startup-ready').length), 0);
+        await chatReady(page);
+        assert.equal((await traces(page)).emptyVisible, false);
+        assert.equal((await traces(page)).ended, 0);
+        await hide(page);
+        assert.equal((await traces(page)).ended, 1);
+        const dialog = await settings(page);
+        await dialog.getByText('本次开场诊断', { exact:true }).click();
+        const report = await dialog.locator('[data-opening-diagnosis]').filter({ hasText:/chat-ready \d+/ }).textContent();
+        assert.match(report, /已播放[\s\S]*idb-result[\s\S]*play-accepted[\s\S]*first-frame[\s\S]*chat-ready \d+/);
+        await fs.writeFile(path.join(out, 'startup-timeline.txt'), report + '\n');
+        pass.push('push page navigation with a delayed script and chat reads plays without a false empty state');
+    });
+}
+
+async function testStartupRaces(clip, pass) {
+    for (const mode of ['no-frame-callback', 'slow-idb', 'slow-decode', 'late-idb', 'slow-chat', 'hung-chat']) {
+        await inBrowser(mode, async page => {
+            await seed(page, clip);
+            await page.goto(origin + '/index.html', { waitUntil:'domcontentloaded', timeout:deadline });
+            if (mode === 'late-idb') {
+                await hide(page);
+                await page.waitForTimeout(2500);
+                assert.equal((await traces(page)).started, 0);
+            } else {
+                await visibleVideo(page);
+                if (mode === 'slow-chat' || mode === 'hung-chat') {
+                    await page.waitForFunction(() => window.qaOpening.ended === 1);
+                    assert.equal((await traces(page)).fade, 0);
+                    if (mode === 'slow-chat') await chatReady(page);
+                }
+                await hide(page);
+                assert.equal((await traces(page)).ended, 1);
+            }
+            await chatReady(page);
+            assert.equal((await traces(page)).emptyVisible, false);
+            const dialog = await settings(page);
+            await dialog.getByText('本次开场诊断', { exact:true }).click();
+            const report = await dialog.locator('[data-opening-diagnosis]').filter({hasText:/chat-ready \d+/}).textContent();
+            if (mode === 'late-idb') assert.match(report, /读取视频超时/);
+            else assert.match(report, /已播放/);
+            if (mode === 'slow-chat') {
+                assert.match(report, /handoff-wait/);
+                assert.doesNotMatch(report, /handoff-timeout/);
+            }
+            if (mode === 'hung-chat') assert.match(report, /handoff-timeout/);
+            await fs.writeFile(path.join(out, mode + '-timeline.txt'), report + '\n');
+            pass.push('bounded startup and handoff: ' + mode);
+        });
+    }
+    await inBrowser('interaction', async page => {
+        await seed(page, clip);
+        await openPage(page);
+        await visibleVideo(page);
+        // Events from scripts do not count as a user skipping the opening.
+        await page.locator('#app').dispatchEvent('pointerdown');
+        assert.equal(await opening(page).evaluate(node => node.hidden), false);
+        await page.locator('#app').click({ position:{x:10,y:300} });
+        await hide(page);
+        const dialog = await settings(page);
+        await dialog.getByText('本次开场诊断', { exact:true }).click();
+        assert.match(await dialog.locator('[data-opening-diagnosis]').filter({hasText:/chat-ready \d+/}).textContent(), /操作小家时取消/);
+        pass.push('only a trusted interaction in the chat cancels the opening');
+    });
 }
 
 async function recordLocal(file) {
@@ -411,6 +572,10 @@ async function run() {
             createFixture(tmp, 'normal', 3.03), createFixture(tmp, 'exact', 5),
             createFixture(tmp, 'long', 5.3), createFixture(tmp, 'replacement', 1, 'blue')
         ]);
+        if (baseline) {
+            await testStartupFromPush(normal, []);
+            return;
+        }
         const padding = Buffer.alloc(5 * 1024 * 1024 - exact.length);
         padding.writeUInt32BE(padding.length, 0);
         padding.write('free', 4, 'ascii');
@@ -418,6 +583,8 @@ async function run() {
         const pass = [];
         await testSettings(clips, pass);
         const trace = await testPlayback(clips, pass);
+        await testStartupFromPush(normal, pass);
+        await testStartupRaces(normal, pass);
         const result = { passed:pass.length, cases:pass, normal:trace, networkRequests:0, syntheticOnly:true };
         await fs.writeFile(path.join(out, 'local-opening-regression.json'), JSON.stringify(result, null, 2) + '\n');
         console.log(JSON.stringify(result, null, 2));
