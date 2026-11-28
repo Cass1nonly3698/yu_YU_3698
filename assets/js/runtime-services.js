@@ -137,18 +137,33 @@
             nodes[0].before(span);
             span.append(...nodes);
         };
+        const labelMemoryCitation = cite => {
+            const labels = cite.dataset.memoryNos.split(',').map(no => getMemoryCitationLabel(Number(no)) || '?');
+            cite.setAttribute('aria-label', `查看判断依据：第 ${labels.join('、')} 轮`);
+            cite.textContent = labels.join(',');
+        };
+        const refreshMemoryCitationLabels = documentNode => {
+            documentNode.querySelectorAll('.memory-cite[data-memory-nos]').forEach(labelMemoryCitation);
+        };
         const decorateMemoryCitations = (documentNode) => {
             const textNodes = [];
             const walker = documentNode.createTreeWalker(documentNode.body, NodeFilter.SHOW_TEXT);
             while (walker.nextNode()) {
                 const node = walker.currentNode;
-                if (MEMORY_CITATION_PATTERN.test(node.nodeValue) && !node.parentElement?.closest('pre, code, a, button, script, style, textarea')) textNodes.push(node);
+                if ((MEMORY_CITATION_PATTERN.test(node.nodeValue) || /\[M\d{0,6}$/.test(node.nodeValue)) && !node.parentElement?.closest('pre, code, a, button, script, style, textarea')) textNodes.push(node);
             }
             textNodes.forEach(node => {
                 const fragment = documentNode.createDocumentFragment();
                 node.nodeValue.split(MEMORY_CITATION_PATTERN).forEach((part, index) => {
                     if (index % 2 === 0) {
-                        if (part) fragment.append(part);
+                        const pending = part.match(/\[M\d{0,6}$/);
+                        if (pending) {
+                            fragment.append(part.slice(0, pending.index));
+                            const span = documentNode.createElement('span');
+                            span.className = 'memory-cite-pending';
+                            span.textContent = pending[0];
+                            fragment.append(span);
+                        } else if (part) fragment.append(part);
                         return;
                     }
                     const numbers = part.match(/\d+/g);
@@ -157,9 +172,7 @@
                     cite.className = 'memory-cite';
                     cite.dataset.memoryNos = numbers.join(',');
                     // 角标显示记忆对应的轮次：单轮如 3，合并总结如 1-5；找不到的记忆显示问号。
-                    const labels = numbers.map(no => getMemoryCitationLabel(Number(no)) || '?');
-                    cite.setAttribute('aria-label', `查看判断依据：第 ${labels.join('、')} 轮`);
-                    cite.textContent = labels.join(',');
+                    labelMemoryCitation(cite);
                     fragment.append(cite);
                 });
                 node.replaceWith(fragment);
@@ -189,7 +202,7 @@
         };
         // 正则替换成 HTML、或本身以 HTML 开头的回复走单独的渲染分支，也要补上记忆引用。
         const decorateHtml = (html, role) => {
-            if (role !== 'assistant' || !/\[M\d/.test(html)) return html;
+            if (role !== 'assistant' || !html.includes('[M')) return html;
             const documentNode = new DOMParser().parseFromString(html, 'text/html');
             wrapLooseCitationText(documentNode);
             return decorateMemoryCitations(documentNode) ? documentNode.body.innerHTML : html;
@@ -267,7 +280,7 @@
             return cacheValue(renderedCache, cacheKey, html);
         };
 
-        return { clearCaches, contentUsesHtmlFrame, decorateMemoryCitations, renderMarkdown };
+        return { clearCaches, contentUsesHtmlFrame, decorateMemoryCitations, refreshMemoryCitationLabels, renderMarkdown };
     };
 
     window.RPHubMessageRenderer = Object.freeze({ createMessageRenderer });

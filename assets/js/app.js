@@ -576,6 +576,7 @@ const app = createApp({
             useCharacterBackground: true,
             immersiveMode: false,
             showLatestUsageBar: false,
+            showMemoryCitations: false,
             preventTruncation: false,
             styleFilterEnabled: true,
             uiTemplateEnabled: false,
@@ -2352,7 +2353,10 @@ const app = createApp({
         ]), () => {
             if (_initComplete && !suspendCharacterAutoSave) debouncedCharacterSave();
         });
-        watch([settings, presets, regexScripts, globalRegexScripts, worldInfo, globalWorldInfo, globalUiTemplates, activeTools, user, recentGenerationTimes], () => {
+        // This display-only toggle saves its allowlisted preference without resaving chat or memory.
+        const settingsForAutoSave = () => Object.fromEntries(Object.keys(settings)
+            .filter(key => key !== 'showMemoryCitations').map(key => [key, settings[key]]));
+        watch([settingsForAutoSave, presets, regexScripts, globalRegexScripts, worldInfo, globalWorldInfo, globalUiTemplates, activeTools, user, recentGenerationTimes], () => {
             if (!_initComplete) return;
             debouncedSave();
         }, { deep: true });
@@ -2364,6 +2368,10 @@ const app = createApp({
         watch(() => [settings.temperature, settings.selectedModelSlot, settings.model,
             settings.qualityModel, settings.balancedModel, settings.fastModel], () => {
             saveChatPreferencesNow().catch(() => showToast('模型与温度设置未能保存，请稍后重试', 'warning'));
+        }, { flush: 'post' });
+
+        watch(() => settings.showMemoryCitations, () => {
+            saveChatPreferencesNow().catch(() => showToast('记忆引用显示偏好未能保存，请稍后重试', 'warning'));
         }, { flush: 'post' });
 
         // Watch chat history length only so large histories do not get traversed on load.
@@ -3379,6 +3387,7 @@ const app = createApp({
             clearCaches: clearMessageRenderCaches,
             contentUsesHtmlFrame,
             decorateMemoryCitations,
+            refreshMemoryCitationLabels,
             renderMarkdown
         } = createMessageRenderer({
             processRegex,
@@ -3392,6 +3401,20 @@ const app = createApp({
         watch(() => [settings.styleFilterEnabled, regexScripts.value, user.name], () => {
             clearMessageRenderCaches();
         }, { deep: true });
+
+        watch(() => [settings.showMemoryCitations, memoryCitationVersion.value], () => {
+            // Refresh decoration in place; card inputs and scripts keep their current state.
+            document.querySelectorAll('iframe.executable-html-frame').forEach(frame => {
+                try {
+                    const doc = frame.contentDocument;
+                    const style = doc?.querySelector('style[data-memory-citation-style]');
+                    if (style) {
+                        style.textContent = window.RPHubMemoryCitations.frameStyle();
+                        refreshMemoryCitationLabels(doc);
+                    }
+                } catch (_) { /* A card may have navigated away from its original document. */ }
+            });
+        }, { flush: 'post' });
 
         const messageUsesHtmlFrame = (msg) => {
             if (!msg || !msg.content) return false;
@@ -8538,15 +8561,24 @@ const app = createApp({
             const numbers = [...new Set(String(nos || '').split(',').map(Number).filter(no => Number.isInteger(no) && no > 0))];
             if (numbers.length) memoryCitationNos.value = numbers;
         };
-        const openMemoryCitation = (event) => showMemoryCitation(event.target.closest?.('.memory-cite, .memory-cite-text')?.dataset.memoryNos);
+        const messageMemoryCitationNos = (msg) => {
+            if (msg?.role !== 'assistant') return '';
+            const text = parseCot(msg.content || '').main;
+            return [...new Set([...text.matchAll(/\[M(\d{1,6})\]/g)].map(match => Number(match[1])))].filter(no => no > 0).join(',');
+        };
+        const openMemoryCitation = (event) => {
+            if (settings.showMemoryCitations) showMemoryCitation(event.target.closest?.('.memory-cite, .memory-cite-text')?.dataset.memoryNos);
+        };
         // HTML 卡片在 iframe 里渲染，卡片脚本借这里的处理给引用加角标，点击后在这里打开判断依据。
         window.RPHubMemoryCitations = {
             decorate: decorateMemoryCitations,
             open: showMemoryCitation,
+            visible: () => settings.showMemoryCitations,
             frameStyle: () => {
                 const tone = getComputedStyle(document.documentElement).getPropertyValue('--primary-500').trim() || '99 102 241';
                 return `.memory-cite-text{text-decoration:underline dotted rgb(${tone} / .75);text-decoration-thickness:1.5px;text-underline-offset:.3em;cursor:pointer}`
-                    + `.memory-cite{display:inline-flex;align-items:center;justify-content:center;min-width:1.4em;height:1.4em;margin:0 .15em;padding:0 .35em;border:0;border-radius:999px;background:rgb(${tone} / .14);color:rgb(${tone});font:700 .75em/1 system-ui,sans-serif;vertical-align:.4em;cursor:pointer}`;
+                    + `.memory-cite{display:inline-flex;align-items:center;justify-content:center;min-width:1.4em;height:1.4em;margin:0 .15em;padding:0 .35em;border:0;border-radius:999px;background:rgb(${tone} / .14);color:rgb(${tone});font:700 .75em/1 system-ui,sans-serif;vertical-align:.4em;cursor:pointer}`
+                    + (settings.showMemoryCitations ? '' : '.memory-cite,.memory-cite-pending{display:none!important}.memory-cite-text{ text-decoration:none!important;background:transparent!important;cursor:inherit!important}');
             }
         };
 
@@ -8618,7 +8650,7 @@ const app = createApp({
                 set: (val) => { settings.uiTemplateAnalysisDepth = Math.max(4, Math.min(10, Number(val) || 4)); }
             }),
             displayedClassicMemories,
-            memoryStats, memoryCitationNos, memoryCitationItems, openMemoryCitation,
+            memoryStats, memoryCitationNos, memoryCitationItems, openMemoryCitation, messageMemoryCitationNos, showMemoryCitation,
             clearAllMemories: () => {
                 confirmAction('确定要清空所有总结记忆及其向量吗？两个模式共享这些记忆，此操作无法撤销。', async () => {
                     abortClassicBatchExtraction();
