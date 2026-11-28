@@ -124,11 +124,8 @@ html:-webkit-full-screen #app .app-main {
     z-index: 9999;
     overflow: hidden;
     pointer-events: none;
-    opacity: 0;
     background: #112c42;
 }
-
-.entry-transition.is-playing { opacity: 1; }
 .entry-transition.is-fading { opacity: 0; transition: opacity 240ms ease-out; }
 .entry-transition[hidden] { display: none; }
 
@@ -164,6 +161,8 @@ html:not(.local-opening-ready) #local-opening-settings-entry { display: none; }
 .local-opening-settings::backdrop { background: rgba(12, 24, 40, .55); }
 .local-opening-settings > * + * { margin-top: .75rem; }
 .local-opening-settings p { font-size: .875rem; }
+.local-opening-settings__diagnosis { font-size: .875rem; }
+.local-opening-settings__diagnosis pre { margin-top: .5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .local-opening-settings__header,
 .local-opening-settings__actions {
     display: flex;

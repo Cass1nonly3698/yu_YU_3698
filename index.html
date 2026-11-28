@@ -7,6 +7,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="assets/pwa/haishen-180.png">
     <meta name="apple-mobile-web-app-title" content="海神来信">
     <script src="assets/js/full-backup-gate.js"></script>
+    <link rel="preload" as="script" href="assets/js/local-opening.js?v=3">
     <script src="assets/js/theme.js"></script>
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
@@ -63,7 +64,7 @@
     </svg>
     <!-- Roleplay Hub by STA1N156, https://github.com/STA1N156/RP-Hub, CC BY-NC 4.0 (see LICENSE).
          Modified: device-local entry video and settings. -->
-    <div id="local-opening" class="entry-transition" aria-hidden="true" hidden>
+    <div id="local-opening" class="entry-transition" aria-hidden="true" data-startup-budget="1800" hidden>
         <video muted playsinline disablepictureinpicture preload="none"></video>
     </div>
     <dialog id="local-opening-settings" class="local-opening-settings" aria-labelledby="local-opening-title">
@@ -79,22 +80,30 @@
             <button type="button" class="settings-action" data-opening-action="remove" disabled>移除</button>
         </div>
         <p role="status"></p>
+        <details class="local-opening-settings__diagnosis">
+            <summary>本次开场诊断</summary>
+            <pre data-opening-diagnosis></pre>
+        </details>
         <video class="local-opening-settings__preview" aria-label="开场视频预览"
             muted playsinline disablepictureinpicture preload="none" hidden></video>
     </dialog>
     <script>
         (function () {
             const opening = document.getElementById('local-opening');
-            opening.dataset.deadline = String(performance.now() + 400);
+            opening.dataset.startedAt = String(performance.now());
             const firstInteraction = new AbortController();
-            const skip = () => { opening.dataset.skip = ''; firstInteraction.abort(); };
+            const skip = event => {
+                if (!event.isTrusted || !event.target?.closest?.('#app')) return;
+                opening.dataset.skip = '';
+                firstInteraction.abort();
+            };
             for (const name of ['pointerdown', 'keydown']) {
                 document.addEventListener(name, skip, { capture: true, signal: firstInteraction.signal });
             }
-            setTimeout(() => firstInteraction.abort(), 400);
+            setTimeout(() => firstInteraction.abort(), Number(opening.dataset.startupBudget));
         })();
     </script>
-    <script async src="assets/js/local-opening.js?v=1"></script>
+    <script async src="assets/js/local-opening.js?v=3"></script>
 
     <div id="app" v-cloak class="h-full flex flex-col md:flex-row relative"
         :class="{ 'app-native-fullscreen': isChatFullscreen, 'mobile-keyboard-active': isMobileKeyboardOpen }">
@@ -282,7 +291,8 @@
                     @scroll="handleChatScroll"
                     class="cottage-message-scroll flex-1 overflow-y-auto overflow-x-hidden px-2 pt-14 md:pt-16 pb-52 md:pb-60 relative z-0 space-y-12 md:space-y-14"
                     :class="!settings.useCharacterBackground || !currentCharacter?.avatar ? 'chat-ambient' : ''">
-                    <div v-if="!currentCharacter" class="chat-empty">
+                    <p v-if="!startupChatReady" class="text-center text-sm text-gray-500" role="status">正在恢复聊天…</p>
+                    <div v-else-if="!currentCharacter" class="chat-empty">
                         <div class="chat-empty__icon">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
