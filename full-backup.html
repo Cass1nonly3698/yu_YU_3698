@@ -7,8 +7,8 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">
     <title>完整备份与恢复 · RP-Hub</title>
     <link rel="stylesheet" href="assets/css/full-backup.css">
-    <script src="assets/js/full-backup.js" defer></script>
-    <script src="assets/js/full-backup-ui.js" defer></script>
+    <script src="assets/js/full-backup.js?v=base64-linear-2" defer></script>
+    <script src="assets/js/full-backup-ui.js?v=base64-linear-2" defer></script>
 </head>
 <body>
     <main>
@@ -35,7 +35,7 @@
             <section id="restore-panel" class="card" role="tabpanel" aria-labelledby="restore-tab" hidden>
                 <p class="eyebrow">02 · 把经历接回来</p><h2>恢复到这个小家</h2>
                 <p>先解密、预检，再由你确认。备份外的目标资料保留；备份内的同名资料若有变化，会明确列为冲突。</p>
-                <label class="file-label">完整备份文件<input id="backup-file" type="file" accept=".rphub,application/json"></label>
+                <label class="file-label">完整备份文件<input id="backup-file" type="file" accept=".rphub,.json,application/json,application/octet-stream"></label>
                 <label>备份密码<input id="restore-password" type="password" autocomplete="off" minlength="10"></label>
                 <button id="preflight" class="wide secondary">解密并预检</button>
                 <div id="preview" hidden>

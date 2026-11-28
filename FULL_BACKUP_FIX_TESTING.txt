@@ -1,0 +1,59 @@
+Local compatibility regression checks — 2026-11-28
+
+Run from the repository root in a checkout containing ab7500d. All fixtures are synthetic.
+Do not select a real backup or use a production browser profile. No model/vector API is needed.
+
+Prerequisites
+Node.js, Python 3.9+, npm development dependencies (fake-indexeddb and Playwright), and installed browser binaries.
+The tests that compare legacy output use `git show ab7500d:assets/js/full-backup.js`.
+The source ZIP alone does not include Git history; apply the supplied patch to the ab7500d checkout to reproduce those tests.
+
+Core and compatibility
+  npm run test:backup
+  npm run test:compat
+
+Expected for this candidate: 31 backup checks, 34 proactive compatibility checks, 11 story-panel checks.
+The original `npm test` retains the pre-existing tests/proactive.test.cjs:234 assertion failure (0 !== 1).
+This change does not alter that suite or fix its unrelated failure.
+
+Browser UI and recovery gates
+Provide RP_HUB_VENDOR_DIR with local vue.js, marked.js, purify.js and sortable.js.
+RP_HUB_CHROMIUM optionally points to a Chromium executable; RP_HUB_BACKUP_OUTPUT selects an output directory.
+  npm run test:backup:browser
+Expected: 13 checks; fresh isolated contexts, fake hostname, outbound requests fulfilled locally or blocked.
+
+Background lifecycle
+Use the same RP_HUB_VENDOR_DIR and optional RP_HUB_CHROMIUM.
+RP_HUB_TAILWIND optionally points to the existing Tailwind browser dependency saved locally.
+For visual QA, supply it; otherwise utilities are stubbed and the screenshot is not visually representative.
+RP_HUB_SCENE_OUTPUT selects the output directory.
+  npm run test:scenes
+Expected: 11 groups, including a delayed Web Lock, real Vue mount, main/side switches,
+localStorage events, clock boundaries, visibility/pageshow/focus, reload, mobile clicks and teardown.
+Set QA_BASELINE=1 to run the reproduction against unchanged ab7500d files.
+
+Large legacy-format export/decrypt/restore/download
+Set RP_HUB_QA_OUTPUT to an absolute output directory, then in terminal A:
+  python3 tests/serve-full-backup-qa.py
+Copy the printed localhost URL to RP_HUB_QA_URL in terminal B, using the same RP_HUB_QA_OUTPUT:
+  npm run test:backup:large
+The runner uses Chromium by default; QA_ENGINE=webkit selects Playwright WebKit if it can launch.
+It runs 20/30/50 MiB synthetic bodies in fresh contexts, exports with the unchanged ab7500d writer,
+checks renamed .rphub.json/original names and MIME types, restores and compares fingerprints,
+checks repeated restore, raw vectors/source links/fake push identity, re-export, wrong password and tampering.
+The actual downloaded legacy file is checked by size and SHA-256. Files remain in ephemeral browser contexts.
+Stop the localhost server when finished. Do not use a production origin.
+
+JavaScriptCore-specific Base64 check
+With a WebKit bundle exposing jsc, run its jsc helper from the repository root:
+  /absolute/path/to/jsc tests/full-backup-jsc.js
+The helper may require DYLD_FRAMEWORK_PATH and DYLD_LIBRARY_PATH to point to the bundle's framework directory.
+Expected: three cases (20/30/50 MiB), full byte equality and rejection of an invalid final quartet.
+This checks the actual JavaScriptCore decoder, not browser File/WebCrypto/IndexedDB integration.
+
+Verified environment and limits
+Node 24.22.3; Playwright 1.62.1; Chromium 151.0.7922.34.
+WebKit bundle 2336 JavaScriptCore passed the three decoder cases.
+The full Playwright WebKit browser aborted during native _RegisterApplication startup in this environment,
+also with a fresh official bundle. The full encryption/restore flow has not passed in WebKit or on physical iPhone.
+Do not report Chromium emulation, including the in-app browser, as iPhone/WebKit validation.
