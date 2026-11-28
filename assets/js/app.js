@@ -4,6 +4,7 @@ const { createMessageRenderer } = window.RPHubMessageRenderer;
 const { AppNavigation } = window.RPHubLayoutComponents;
 const { requestChatCompletion, requestJson } = window.RPHubApiClient;
 const { buildApiEndpoint, buildUserInputToolMessages } = window.RPHubApiUtils;
+const realTimeClock = window.RPHubRealTime;
 const {
     ActionConfirmModal,
     ActiveToolEditorModal,
@@ -570,6 +571,7 @@ const app = createApp({
             reasoningEffort: '',
             stream: true,
             activeToolAggressiveness: 'adaptive',
+            realTimePreference: { ...realTimeClock.defaults },
 
             useCharacterBackground: true,
             immersiveMode: false,
@@ -592,6 +594,27 @@ const app = createApp({
             balancedModel: DEFAULT_API_CONFIG.balancedModel,
             fastModel: DEFAULT_API_CONFIG.fastModel
         });
+        const realTimeDraft = reactive({ mode: 'beijing', ianaZone: '' });
+        const realTimeSaving = ref(false);
+        const realTimeSettingsStatus = ref('');
+        const externalRealTime = ref(false);
+        const lastRealTimeRequest = ref('');
+        let realTimeRequestCount = 0;
+        const newTimedReplies = new WeakSet();
+        try { externalRealTime.value = localStorage.getItem(realTimeClock.legacyKey) === '1'; } catch (_) { }
+        const realTimeNeedsFallback = computed(() => settings.realTimePreference.mode === 'manual'
+            && !realTimeClock.isSupportedZone(settings.realTimePreference.ianaZone));
+        const setExternalRealTime = enabled => {
+            externalRealTime.value = enabled;
+            lastRealTimeRequest.value = '';
+            try {
+                if (enabled) localStorage.setItem(realTimeClock.legacyKey, '1');
+                else localStorage.removeItem(realTimeClock.legacyKey);
+                realTimeSettingsStatus.value = enabled ? '当前浏览器已切到旧脚本兼容模式。' : '当前浏览器已切到原生现实时间。';
+            } catch (_) { realTimeSettingsStatus.value = '此次打开时已切换，浏览器未能保存这个选择。'; }
+        };
+        const formatRealTimeHeading = realTimeClock.formatHeading;
+        const formatRealTimeHeadingZone = value => `${value.zone} · UTC${realTimeClock.formatOffset(value.offsetMinutes)}`;
         const v5UnsupportedImageStyles = new Set(['r18', 'lolita25d', 'anime']);
         const availableImageStyleOptions = computed(() => settings.imageModel === 'nai-diffusion-5-full'
             ? imageStyleOptions.filter(option => !v5UnsupportedImageStyles.has(option.value))
@@ -1652,6 +1675,25 @@ const app = createApp({
             await setStoredValue('characters', unwrapForStorage(characters.value), { clone: false });
         };
 
+        const saveRealTimePreference = async () => {
+            if (!_initComplete || realTimeSaving.value) return;
+            const preference = realTimeClock.normalizePreference({ version: 1, ...realTimeDraft });
+            if (preference.mode === 'manual' && !realTimeClock.isSupportedZone(preference.ianaZone)) {
+                realTimeSettingsStatus.value = '请输入设备支持的 IANA 时区，例如 Africa/Cairo。原设置仍在使用。';
+                return;
+            }
+            realTimeSaving.value = true;
+            const previous = settings.realTimePreference;
+            settings.realTimePreference = preference;
+            try {
+                await setStoredValue('settings', settings);
+                realTimeSettingsStatus.value = '现实时间设置已保存。';
+            } catch (_) {
+                settings.realTimePreference = previous;
+                realTimeSettingsStatus.value = '未能保存现实时间设置，已恢复原选择。';
+            } finally { realTimeSaving.value = false; }
+        };
+
         const saveData = async (options = {}) => {
             const { saveMemories = true, saveCharacters = true } = options;
             try {
@@ -1778,6 +1820,8 @@ const app = createApp({
                 } else {
                     normalizeApiProviderSettings();
                 }
+                settings.realTimePreference = realTimeClock.normalizePreference(settings.realTimePreference);
+                Object.assign(realTimeDraft, { mode: settings.realTimePreference.mode, ianaZone: settings.realTimePreference.ianaZone || '' });
                 RPHubChatPreferences.restore(settings, await getStoredValue('chat_preferences_v2'));
                 settings.fontSize = normalizeFontSize(settings.fontSize);
                 if (settings.reasoningEffort === 'xhigh') settings.reasoningEffort = 'max';
@@ -4762,9 +4806,18 @@ const app = createApp({
                 }
 
                 assistantMessage = createAssistantMessage(content, reasoning);
+                if (!mailbox && attemptRealTime) newTimedReplies.add(assistantMessage);
                 if (!mailbox) chatHistory.value.push(assistantMessage);
                 isReceiving.value = !mailbox;
                 return assistantMessage;
+            };
+
+            let attemptRealTime = null;
+            const stampReplyTime = () => {
+                if (mailbox || !attemptRealTime || !assistantMessage || !newTimedReplies.has(assistantMessage)
+                    || !parseCot(assistantMessage.content).main) return;
+                assistantMessage.realTimeDisplay = attemptRealTime;
+                newTimedReplies.delete(assistantMessage);
             };
 
             try {
@@ -4776,9 +4829,10 @@ const app = createApp({
                 if (requestSignal.aborted || (proactive && !proactive.isCurrent())) throw createAbortReason();
 
                 // 最后再搬移整条用户消息，连同世界书、召回和本轮附加要求一起交给工具。
-                const inputIndex = obfuscateInput ? messages.findIndex(message => message.role === 'user'
-                    && message._sourceIndexes?.includes(latestUserIndex)
-                    && getMessageImages(message).length === 0) : -1;
+                const latestUserSlot = proactive ? -1 : messages.findIndex(message => message.role === 'user'
+                    && message._sourceIndexes?.includes(latestUserIndex));
+                const inputIndex = obfuscateInput && latestUserSlot >= 0
+                    && getMessageImages(messages[latestUserSlot]).length === 0 ? latestUserSlot : -1;
                 if (inputIndex >= 0) {
                     const inputMessage = messages[inputIndex];
                     const [inputCall, inputResult] = buildUserInputToolMessages(inputMessage.content, `call_${generateUUID()}`);
@@ -4824,10 +4878,38 @@ const app = createApp({
                         lastTriggeredWorldInfos.value = contextViewerState.triggeredWorldInfos;
                     }, 0);
                 };
+                const mapRequestMessages = (outgoing, attempt) => {
+                    attemptRealTime = null;
+                    if (requestSignal.aborted) return outgoing;
+                    const withoutMailboxClock = now => {
+                        if (!mailbox || !Number.isFinite(proactive.lastInteraction)) return outgoing;
+                        const copy = outgoing.slice();
+                        copy[copy.length - 1] = { ...copy.at(-1), content: RPHubMailbox.prompt(
+                            proactive.lastInteraction, now, { includeBeijingTime: false }) };
+                        return copy;
+                    };
+                    if (externalRealTime.value) {
+                        lastRealTimeRequest.value = '由旧脚本提供时间，原生时间未附带。';
+                        return withoutMailboxClock(Date.now());
+                    }
+                    try {
+                        const now = Date.now();
+                        const snapshot = realTimeClock.capture(settings.realTimePreference, now);
+                        const result = realTimeClock.addReference(withoutMailboxClock(now), latestUserSlot, snapshot);
+                        attemptRealTime = snapshot.display;
+                        const placement = result.positions === 2 ? '双位置' : '仅系统位置';
+                        lastRealTimeRequest.value = `${placement} · 本页 ${++realTimeRequestCount} 次 · 尝试 ${attempt} · ${realTimeClock.describe(snapshot)}${snapshot.fallback ? '（时区不可用，暂用北京时间）' : ''}`;
+                        return result.messages;
+                    } catch (_) {
+                        lastRealTimeRequest.value = '设备时钟或时区无法读取，本次未附带原生时间。';
+                        return outgoing;
+                    }
+                };
                 const responseResult = await requestTrackedChatCompletion({
                     model: requestModel,
                     messages: apiMessages,
                     onBeforeRequest: prepareRequest,
+                    mapRequestMessages,
                     logResponse: true,
                     maxAttempts: proactive ? 1 : 3,
                     replyInTool: isTruncationEnabled.value,
@@ -4846,6 +4928,7 @@ const app = createApp({
                         let seededReasoning = false;
                         if (!assistantMessage) {
                             assistantMessage = ensureAssistantMessage(content, reasoning);
+                            stampReplyTime();
                             seededContent = !!content;
                             seededReasoning = !!reasoning;
                             if (seededReasoning) {
@@ -4864,6 +4947,7 @@ const app = createApp({
                         }
                         if (content && !seededContent) {
                             appendAssistantText(assistantMessage, 'content', content);
+                            stampReplyTime();
                             isThinking.value = false;
                             collapseNativeReasoning(assistantMessage);
                         }
@@ -4879,6 +4963,7 @@ const app = createApp({
                     isThinking.value = !!(reasoning && !content);
                     if (content || reasoning) {
                         assistantMessage = ensureAssistantMessage(content, reasoning);
+                        stampReplyTime();
                         const hasReasoning = !!String(assistantMessage.reasoning || '').trim();
                         const hasContent = !!String(assistantMessage.content || '').trim();
                         isThinking.value = hasReasoning && !hasContent;
@@ -5140,7 +5225,7 @@ const app = createApp({
                 if (!isCurrent() || !proactiveSettings.enabled
                     || chatHistory.value.length !== offer.length || document.visibilityState !== 'visible') return;
                 await generateResponse(now, { proactive: { scope, history: offer.history, isCurrent,
-                    mailbox: true, messageId: generateUUID(), developmentTest,
+                    mailbox: true, messageId: generateUUID(), developmentTest, lastInteraction: offer.lastInteraction,
                     instruction: RPHubMailbox.prompt(offer.lastInteraction, now) } });
             } catch (error) {
                 showToast(`主动消息未完成：${error.message || '请稍后回访'}`, 'warning');
@@ -7108,6 +7193,7 @@ const app = createApp({
         const clearStoryBranchTransientContext = () => {
             lastContextMessages.value = [];
             lastTriggeredWorldInfos.value = [];
+            lastRealTimeRequest.value = '';
             resetActiveToolResultContext();
         };
 
@@ -8467,7 +8553,9 @@ const app = createApp({
             currentView, showDescriptionPanel, showModelSelector, modelSelectionTarget, openModelSelector, showChatModelSelector, showCharacterEditor, showAddCharacterMenu, showPresetEditor, showUiTemplateEditor,
             showActiveToolEditor,
             showExportModal, exportItems, selectedExportIndices, openFullLocalBackup, // Export Modal
-            showContextViewerModal, lastContextMessages, lastTriggeredWorldInfos,
+            showContextViewerModal, lastContextMessages, lastTriggeredWorldInfos, lastRealTimeRequest,
+            realTimeDraft, realTimeSaving, realTimeSettingsStatus, realTimeNeedsFallback, saveRealTimePreference,
+            externalRealTime, setExternalRealTime, formatRealTimeHeading, formatRealTimeHeadingZone,
             lastContextTotalLength, // Context Viewer
             showStoryBranchModal, showStoryBranchNameEditor, storyBranchNameDraft,
             storyBranches, storyRouteMap, currentStoryBranch, selectedStoryRouteNode,

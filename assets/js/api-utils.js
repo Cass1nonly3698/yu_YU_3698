@@ -291,11 +291,13 @@
         };
         try {
             options.onBeforeRequest?.();
+            // Only explicitly opted-in calls get an attempt-specific message copy.
+            const messages = options.mapRequestMessages?.(options.messages, attempt) ?? options.messages;
             const tools = [...(options.tools || []), ...(options.replyInTool && !options.requireTool ? [replyTool] : [])];
             return await withApiResponse({ ...options, onErrorResponse: text => {
                 if (logResponse) rawResponse = text;
             }, body: {
-                model: options.model, messages: options.messages, temperature: options.temperature,
+                model: options.model, messages, temperature: options.temperature,
                 ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
                 ...(tools.length ? {
                     tools,

@@ -1983,7 +1983,8 @@
             floors: { type: Number, default: 0 },
             totalLength: { type: Number, default: 0 },
             worldInfos: { type: Array, default: () => [] },
-            messages: { type: Array, default: () => [] }
+            messages: { type: Array, default: () => [] },
+            realTimeStatus: { type: String, default: '' }
         },
         emits: ['close'],
         setup(props) {
@@ -2043,6 +2044,10 @@
                     </modal-header>
 
                     <div class="ctx-viewer__body custom-scrollbar">
+                        <section v-if="realTimeStatus" class="ctx-section">
+                            <h4 class="ctx-section__title">发送时的现实时间</h4>
+                            <p class="ctx-muted">{{ realTimeStatus }}</p>
+                        </section>
                         <section v-if="composition.length" class="ctx-section">
                             <div class="usage-meter" aria-hidden="true">
                                 <span v-for="part in composition" :key="part.key" :class="'ctx-tone--' + part.key" :style="{ flexGrow: part.share }"></span>

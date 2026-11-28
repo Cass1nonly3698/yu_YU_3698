@@ -73,6 +73,7 @@
         }
         const conflicts = plan.changes.filter(c => c.conflict).length;
         $('change-summary').textContent = `${plan.changes.length} 项需要写入，其中 ${conflicts} 项与目标不同。相同记录不重复导入。${plan.capacity.available === null ? '浏览器未提供容量估算，最终写入仍可能因空间不足回退。' : '可用存储空间预检通过。'}`;
+        if (plan.keepsTimePreference) $('change-summary').textContent += ' 这份备份未包含现实时间设置，将保留本机选择。';
         $('changes').replaceChildren();
         for (const c of plan.changes) {
             const li = document.createElement('li');
