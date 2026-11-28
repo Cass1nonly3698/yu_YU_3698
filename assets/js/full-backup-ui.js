@@ -46,7 +46,7 @@
         const password = $('export-password').value;
         if (password !== $('export-confirm').value) return status('两次密码不一致，请重新确认。', true);
         status('正在读取已保存资料并加密，请稍候…');
-        const result = await api.backup(password), blob = new Blob([result.text], { type: 'application/json' });
+        const result = await api.backup(password), blob = new Blob([result.text], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob), a = document.createElement('a');
         a.href = url; a.download = 'RP-Hub-complete-' + new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10) + '.rphub'; document.body.append(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -60,7 +60,10 @@
         if (!file) return status('请先选择完整备份文件。', true);
         if (file.size > RPHubFullBackup.constants.MAX_FILE_BYTES) return status('文件超过本版安全处理上限，未读取或写入。', true);
         status('正在解密并逐项预检，暂不写入资料…');
-        const archive = await api.decrypt(await file.text(), $('restore-password').value);
+        let text;
+        try { text = await file.text(); }
+        catch (_) { throw Object.assign(new Error('备份文件读取失败（FILE_READ）；请确认文件已下载到本机，未写入资料'), { name: 'BackupError' }); }
+        const archive = await api.decrypt(text, $('restore-password').value);
         plan = await api.preflight(archive);
         $('backup-meta').textContent = '备份时间：' + new Date(archive.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) + ' · 北京时间';
         $('counts').replaceChildren();

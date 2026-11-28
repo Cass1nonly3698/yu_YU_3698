@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>仅合成数据 · 大备份兼容性验收</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'none'">
+<style>body{font:16px system-ui;max-width:900px;margin:40px auto;padding:20px}button,a{margin:8px;padding:12px}pre{white-space:pre-wrap;word-break:break-word}h1{font-size:25px}</style>
+<h1>仅合成数据 · 大备份兼容性验收</h1><p>新建的本地测试来源，不接入 Safari/PWA 原数据，不请求模型。</p>
+<p><a href="?mib=20">20 MiB</a><a href="?mib=30">30 MiB</a><a href="?mib=50">50 MiB</a></p>
+<button id="run">开始合成验收</button><button id="cleanup">清理本测试站点的合成数据</button><a id="download" hidden>下载本次旧格式合成备份</a><pre id="progress"></pre><pre id="result"></pre>
+<script src="/ab7500d-full-backup.js"></script><script>window.LegacyFullBackup=window.RPHubFullBackup;</script>
+<script src="/tests/fixtures/full-backup-fixture.js"></script><script src="/assets/js/full-backup.js"></script><script src="/tests/full-backup-large-runner.js"></script></html>

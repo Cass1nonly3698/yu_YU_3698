@@ -7986,7 +7986,9 @@ const app = createApp({
         };
 
         // Lifecycle
+        let cottageController = null;
         onMounted(async () => {
+            cottageController = window.RPHubCottage?.mount(document.querySelector('#app .cottage-room'));
             document.addEventListener('fullscreenchange', syncChatFullscreenState);
             document.addEventListener('webkitfullscreenchange', syncChatFullscreenState);
 
@@ -8232,6 +8234,7 @@ const app = createApp({
         });
 
         onBeforeUnmount(() => {
+            cottageController?.destroy();
             document.removeEventListener('visibilitychange', handleProactiveVisibility);
             window.removeEventListener('pageshow', handleProactivePageShow);
             activeSortable?.destroy();

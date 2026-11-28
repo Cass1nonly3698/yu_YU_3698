@@ -111,7 +111,7 @@
 
             <!-- Chat View -->
             <div v-show="currentView === 'chat'" class="chat-view-root cottage-room flex flex-col h-full relative"
-                :data-cottage-active="activeStoryBranchId === 'main' ? 'true' : 'false'">
+                data-cottage-active="true">
                 <div data-cottage-host></div>
 
                 <!-- Character Background Layer -->
@@ -2577,7 +2577,7 @@
     <script>
         (function (stamp) {
             ['built-in-content', 'core-utils', 'api-utils', 'data-services', 'runtime-services', 'cloud-backup',
-                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'app', 'cottage-atmosphere'].forEach(name => {
+                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'cottage-atmosphere', 'app'].forEach(name => {
                 document.write('<script src="assets/js/' + name + '.js?v=' + stamp + '"><\/script>');
             });
         })(Date.now());
