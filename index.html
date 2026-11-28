@@ -486,6 +486,11 @@
                                             </div>
                                             <!-- Main Part -->
                                             <template v-if="parseCot(msg.content).main">
+                                                <div v-if="msg.role === 'assistant' && formatRealTimeHeading(msg.realTimeDisplay)"
+                                                    class="mb-2 text-xs text-gray-500" data-real-time-heading
+                                                    :title="formatRealTimeHeadingZone(msg.realTimeDisplay)">
+                                                    <span class="sr-only">现实时间</span>{{ formatRealTimeHeading(msg.realTimeDisplay) }}
+                                                </div>
                                                 <template
                                                     v-if="index === chatHistory.length - 1 && isGenerating">
                                                     <div v-if="processMainContent(parseCot(msg.content).main, true).text"
@@ -1687,6 +1692,34 @@
                                 </div>
                             </div>
 
+                            <section class="pt-6 border-t border-gray-100 space-y-3" aria-labelledby="real-time-settings-title">
+                                <h4 id="real-time-settings-title" class="settings-subheading">现实时间</h4>
+                                <p class="text-xs text-gray-500">发送时读取设备时钟，供角色参考。回复上方显示现实时间，剧情时间照常。</p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label for="real-time-mode" class="settings-label">时区模式</label>
+                                        <select id="real-time-mode" v-model="realTimeDraft.mode" :disabled="realTimeSaving" class="settings-control">
+                                            <option value="beijing">固定北京时间（Asia/Shanghai）</option>
+                                            <option value="device">跟随设备时区</option>
+                                            <option value="manual">手动指定 IANA 时区</option>
+                                        </select>
+                                    </div>
+                                    <div v-if="realTimeDraft.mode === 'manual'">
+                                        <label for="real-time-zone" class="settings-label">IANA 时区</label>
+                                        <input id="real-time-zone" v-model.trim="realTimeDraft.ianaZone" :disabled="realTimeSaving"
+                                            class="settings-control" placeholder="Africa/Cairo" maxlength="128" autocapitalize="off" spellcheck="false">
+                                    </div>
+                                </div>
+                                <p v-if="realTimeNeedsFallback && !externalRealTime" class="text-xs text-amber-700">已保存的手动时区在这台设备上不可用，暂用北京时间。</p>
+                                <button type="button" @click="saveRealTimePreference" :disabled="realTimeSaving" class="settings-action min-h-[2.875rem]">保存现实时间设置</button>
+                                <label class="flex items-center gap-2 text-sm text-gray-600">
+                                    <input type="checkbox" :checked="externalRealTime" @change="setExternalRealTime($event.target.checked)">
+                                    由旧时间脚本提供（仅此浏览器）
+                                </label>
+                                <p class="text-xs text-gray-500">Safari 若仍运行旧脚本，先停用该站点的旧时间脚本再使用原生模式。</p>
+                                <p v-if="realTimeSettingsStatus" role="status" class="text-xs text-gray-600">{{ realTimeSettingsStatus }}</p>
+                            </section>
+
                             <!-- Backup & Transfer: the details live in its dialog -->
                             <div v-if="cloudBackup.enabled" class="pt-6 border-t border-gray-100 mt-6">
                                 <h4 class="settings-subheading flex items-center mb-4">
@@ -2471,7 +2504,7 @@
 
         <context-viewer-modal :show="showContextViewerModal" :floors="chatRoundStats.floors"
             :total-length="lastContextTotalLength" :world-infos="lastTriggeredWorldInfos"
-            :messages="lastContextMessages" @close="showContextViewerModal = false"></context-viewer-modal>
+            :messages="lastContextMessages" :real-time-status="lastRealTimeRequest" @close="showContextViewerModal = false"></context-viewer-modal>
 
         <story-branch-modal :show="showStoryBranchModal" :current-branch="currentStoryBranch"
             :branches="storyBranches" :route-map="storyRouteMap" :dragging="storyRouteMapDragging"
@@ -2577,7 +2610,7 @@
     <script>
         (function (stamp) {
             ['built-in-content', 'core-utils', 'api-utils', 'data-services', 'runtime-services', 'cloud-backup',
-                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'cottage-atmosphere', 'app'].forEach(name => {
+                'update-check', 'ui-components', 'proactive-messages', 'mailbox', 'chat-preferences', 'cottage-atmosphere', 'real-time', 'app'].forEach(name => {
                 document.write('<script src="assets/js/' + name + '.js?v=' + stamp + '"><\/script>');
             });
         })(Date.now());

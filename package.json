@@ -1,5 +1,5 @@
 {
   "private": true,
-  "scripts": { "test": "node tests/proactive.test.cjs", "test:backup": "node --test tests/full-backup.test.cjs tests/full-backup-encoding.test.cjs", "test:backup:browser": "node tests/full-backup.browser.cjs", "test:backup:large": "node tests/full-backup-large.browser.cjs", "test:scenes": "node tests/scene-lifecycle.browser.cjs", "test:compat": "node tests/proactive-compat.test.cjs && node --test tests/story-panels-compat.test.cjs" },
+  "scripts": { "test": "node tests/proactive.test.cjs", "test:backup": "node --test tests/full-backup.test.cjs tests/full-backup-encoding.test.cjs", "test:backup:browser": "node tests/full-backup.browser.cjs", "test:backup:large": "node tests/full-backup-large.browser.cjs", "test:scenes": "node tests/scene-lifecycle.browser.cjs", "test:compat": "node tests/proactive-compat.test.cjs && node --test tests/story-panels-compat.test.cjs", "test:time": "node --test tests/real-time.test.cjs", "test:time:browser": "node tests/real-time.browser.cjs" },
   "devDependencies": { "fake-indexeddb": "6.2.4", "playwright": "1.62.1" }
 }

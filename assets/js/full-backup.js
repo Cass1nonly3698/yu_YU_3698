@@ -258,14 +258,25 @@
             if (await fingerprint(archive.data) !== archive.digest) fail('INTEGRITY', '资料完整性校验未通过（CONTENT_DIGEST）');
             return archive;
         }
+        const hasTimePreference = settings => object(settings) && Object.hasOwn(settings, 'realTimePreference');
+        const withoutTimeHeadings = messages => messages.map(message => {
+            if (message.role !== 'assistant' || !Object.hasOwn(message, 'realTimeDisplay')) return message;
+            const { realTimeDisplay, ...rest } = message;
+            return rest;
+        });
         function merge(target, incoming) {
             const records = new Map(target.records.map(r => [r.key, r.value]));
             const incomingKeys = new Set(incoming.records.map(r => r.key));
             for (const r of incoming.records) {
                 let value = r.value, prior = records.get(r.key);
-                if (r.key.startsWith('rp_hub_chat_') && r.key !== 'rp_hub_chat_preferences_v2' && prior !== undefined && !same(prior, value)) {
+                if (r.key === 'rp_hub_settings' && hasTimePreference(prior) && !hasTimePreference(value)) {
+                    value = { ...value, realTimePreference: prior.realTimePreference };
+                }
+                if (r.key.startsWith('rp_hub_chat_') && r.key !== 'rp_hub_chat_preferences_v2' && prior !== undefined) {
                     const memoryKey = 'rp_hub_classic_memories_' + r.key.slice('rp_hub_chat_'.length);
-                    if (!incomingKeys.has(memoryKey) && records.has(memoryKey)) records.set(memoryKey, []);
+                    // A display-only difference does not invalidate existing summaries of the same chat.
+                    if (!incomingKeys.has(memoryKey) && records.has(memoryKey)
+                        && !same(withoutTimeHeadings(prior), withoutTimeHeadings(value))) records.set(memoryKey, []);
                 }
                 if (r.key === 'rp_hub_characters' && Array.isArray(prior)) {
                     const ids = new Set(value.map(c => c.uuid)); value = [...value, ...prior.filter(c => !ids.has(c.uuid))];
@@ -292,7 +303,10 @@
                     const old = new Map(before[type].map(r => [r.key, r.value]));
                     for (const r of after[type]) if (!old.has(r.key) || !same(old.get(r.key), r.value)) changes.push({ key: r.key, type, conflict: old.has(r.key) });
                 }
-                const plan = { archive, targetDigest: await fingerprint(before), afterDigest: await fingerprint(after), changes, counts: counts(archive.data) };
+                const settingsIn = snapshot => snapshot.records.find(r => r.key === 'rp_hub_settings')?.value;
+                const keepsTimePreference = hasTimePreference(settingsIn(before)) && !hasTimePreference(settingsIn(archive.data));
+                const plan = { archive, targetDigest: await fingerprint(before), afterDigest: await fingerprint(after),
+                    changes, counts: counts(archive.data), keepsTimePreference };
                 const estimate = await env.estimate?.();
                 const available = estimate && Number.isFinite(estimate.quota) && Number.isFinite(estimate.usage) ? Math.max(0, estimate.quota - estimate.usage) : null;
                 const required = changes.length ? encoder.encode(canonical({ before, after })).length * 3 + 65536 : 0;
