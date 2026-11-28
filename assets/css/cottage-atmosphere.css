@@ -1,4 +1,4 @@
-/* Photo atmosphere is visual-only and scoped to the main-chat surface. */
+/* Photo atmosphere is visual-only and shared by main and side chat surfaces. */
 .cottage-room[data-cottage-active="true"] {
     isolation: isolate;
     --room-photo-position: 58% 54%;
