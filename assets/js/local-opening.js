@@ -56,12 +56,16 @@
         && record.blob.type === videoType && record.blob.size > 0 && record.blob.size <= MAX_BYTES
         && validDuration(record.duration);
 
-    function canStartOpening(overlay) {
-        if (reducedMotion.matches || document.visibilityState !== 'visible' || 'skip' in overlay.dataset) return false;
+    const startupTrace = Object.create(null);
+    const CHAT_HANDOFF_MS = 1200;
+
+    function startupBlock(overlay) {
+        if (reducedMotion.matches) return 'reduced-motion';
+        if ('skip' in overlay.dataset) return 'interaction';
         try {
-            return !localStorage.getItem('rp_hub_full_backup_pending_v1');
+            return localStorage.getItem('rp_hub_full_backup_pending_v1') ? 'restore-pending' : '';
         } catch (_) {
-            return false;
+            return 'storage-unavailable';
         }
     }
 
@@ -73,22 +77,37 @@
     }
 
     async function startOpening(overlay) {
-        const deadline = Number(overlay.dataset.deadline);
-        if (!Number.isFinite(deadline) || performance.now() >= deadline || !canStartOpening(overlay)) return;
+        const startedAt = Number(overlay.dataset.startedAt);
+        const deadline = startedAt + Number(overlay.dataset.startupBudget);
+        const mark = label => { startupTrace[label] ??= Math.round(performance.now() - startedAt); };
+        mark('script');
+        const blocked = startupBlock(overlay);
+        if (blocked || !Number.isFinite(deadline) || performance.now() >= deadline) {
+            startupTrace.result = blocked || 'script-timeout';
+            return;
+        }
 
         const video = overlay.querySelector('video');
         const events = new AbortController();
         const options = { signal:events.signal };
-        let phase = 'loading';
+        let phase = 'reading';
+        let record;
         let url;
         let frameRequest;
-        let firstFrame = false;
-        let playing = false;
-        let timer = setTimeout(hide, deadline - performance.now());
+        let playAccepted = false;
+        const startupTimeout = {
+            reading:'idb-timeout', 'waiting-visible':'visibility-timeout', starting:'first-frame-timeout'
+        };
+        let timer = setTimeout(() => hide(startupTimeout[phase]), deadline - performance.now());
 
-        function hide() {
+        function hide(reason) {
             if (phase === 'closed') return;
+            startupTrace.exitPhase = phase;
+            startupTrace.readyState = video.readyState;
+            startupTrace.mediaMs = Math.round(video.currentTime * 1000);
             phase = 'closed';
+            startupTrace.result = reason;
+            mark('closed');
             events.abort();
             clearTimeout(timer);
             if (frameRequest !== undefined) video.cancelVideoFrameCallback?.(frameRequest);
@@ -98,72 +117,158 @@
         }
 
         function reveal() {
-            if (phase !== 'loading' || !firstFrame || !playing) return;
-            if (performance.now() >= deadline || !canStartOpening(overlay) || !validDuration(video.duration)) {
-                hide();
+            if (phase !== 'starting' || !playAccepted || video.paused
+                || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth) return;
+            const blocked = startupBlock(overlay);
+            const expired = performance.now() >= deadline;
+            if (blocked || expired || !validDuration(video.duration)) {
+                hide(blocked || (expired ? 'first-frame-timeout' : 'duration'));
+                return;
+            }
+            if (document.visibilityState !== 'visible') {
+                hide('hidden');
                 return;
             }
             phase = 'playing';
+            mark('first-frame');
             clearTimeout(timer);
             overlay.classList.add('is-playing');
-            // A suspended or broken decoder can fail to deliver ended.
-            timer = setTimeout(hide, video.duration * 1000 + 650);
+            timer = setTimeout(() => hide('playback-timeout'), video.duration * 1000 + 650);
+        }
+
+        async function playWhenVisible() {
+            if (phase !== 'waiting-visible' || document.visibilityState !== 'visible') return;
+            const blocked = startupBlock(overlay);
+            if (blocked || performance.now() >= deadline) {
+                hide(blocked || 'visibility-timeout');
+                return;
+            }
+            phase = 'starting';
+            try {
+                url = URL.createObjectURL(record.blob);
+                overlay.hidden = false;
+                video.muted = true;
+                video.playsInline = true;
+                video.src = url;
+                // Observe presentation for diagnosis, never gate visibility on this callback.
+                if (video.requestVideoFrameCallback) {
+                    frameRequest = video.requestVideoFrameCallback(() => {
+                        frameRequest = undefined;
+                        mark('presented-frame');
+                    });
+                }
+                mark('play-request');
+                await video.play();
+                if (phase !== 'starting') return;
+                mark('play-accepted');
+                playAccepted = true;
+                // Decoding can succeed before the browser schedules a presentation callback.
+                reveal();
+            } catch (error) {
+                if (phase === 'closed') return;
+                const name = error?.name;
+                startupTrace.playError = ['NotAllowedError', 'NotSupportedError', 'AbortError'].includes(name) ? name : 'Other';
+                hide('play-rejected');
+            }
         }
 
         function finish() {
             if (phase !== 'playing' || reducedMotion.matches) {
-                hide();
+                hide('ended-before-display');
                 return;
             }
+            mark('ended');
+            clearTimeout(timer);
+            phase = 'handoff';
+            if (performance.getEntriesByName('rphub-chat-startup-ready').length) fade();
+            else {
+                mark('handoff-wait');
+                // Keep the last frame briefly while chat renders; never hold initialization.
+                timer = setTimeout(() => fade(true), CHAT_HANDOFF_MS);
+            }
+        }
+
+        function fade(timedOut = false) {
+            if (phase !== 'handoff') return;
             phase = 'fading';
             clearTimeout(timer);
+            if (timedOut) mark('handoff-timeout');
+            mark('fade');
             overlay.classList.add('is-fading');
-            timer = setTimeout(hide, 300);
+            timer = setTimeout(() => hide('played'), 300);
         }
 
-        window.addEventListener('pagehide', hide, options);
-        reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) hide(); }, options);
-        document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') hide(); }, options);
-        for (const name of ['pointerdown', 'keydown']) document.addEventListener(name, hide, { ...options, capture:true });
-        video.addEventListener('error', hide, options);
-        video.addEventListener('pause', () => { if (phase === 'playing' && !video.ended) hide(); }, options);
-        video.addEventListener('stalled', () => { if (phase === 'playing') hide(); }, options);
+        document.addEventListener('rphub-chat-startup-ready', () => fade(), options);
+        window.addEventListener('pagehide', () => hide('page-hidden'), options);
+        reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) hide('reduced-motion'); }, options);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') playWhenVisible();
+            else if (['starting', 'playing', 'handoff', 'fading'].includes(phase)) hide('hidden');
+        }, options);
+        for (const name of ['pointerdown', 'keydown']) {
+            document.addEventListener(name, event => {
+                if (event.isTrusted && event.target?.closest?.('#app')) hide('interaction');
+            }, { ...options, capture:true });
+        }
+        video.addEventListener('loadedmetadata', () => mark('metadata'), options);
+        video.addEventListener('loadeddata', () => { mark('decoded-frame'); reveal(); }, options);
+        video.addEventListener('playing', () => { mark('playing-event'); reveal(); }, options);
+        video.addEventListener('error', () => {
+            startupTrace.mediaError = video.error?.code;
+            hide('media-error');
+        }, options);
+        video.addEventListener('pause', () => { if (phase === 'playing' && !video.ended) hide('pause'); }, options);
+        // A stalled notification is not a terminal decoder error. The playback watchdog stays armed.
+        video.addEventListener('stalled', () => mark('stalled'), options);
         video.addEventListener('ended', finish, options);
         overlay.addEventListener('transitionend', event => {
-            if (event.target === overlay && event.propertyName === 'opacity' && phase === 'fading') hide();
+            if (event.target === overlay && event.propertyName === 'opacity' && phase === 'fading') hide('played');
         }, options);
 
+        mark('idb-request');
         try {
-            const record = await savedMedia();
-            if (phase !== 'loading') return;
-            if (!validRecord(record) || performance.now() >= deadline || !canStartOpening(overlay)) {
-                hide();
-                return;
-            }
-
-            url = URL.createObjectURL(record.blob);
-            overlay.hidden = false;
-            video.muted = true;
-            video.src = url;
-            if (video.requestVideoFrameCallback) {
-                frameRequest = video.requestVideoFrameCallback(() => {
-                    frameRequest = undefined;
-                    firstFrame = true;
-                    reveal();
-                });
-            } else {
-                video.addEventListener('playing', () => {
-                    firstFrame = video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-                    reveal();
-                }, options);
-            }
-
-            await video.play();
-            playing = true;
-            reveal();
+            record = await savedMedia();
         } catch (_) {
-            hide();
+            hide('idb-error');
+            return;
         }
+        if (phase !== 'reading') return;
+        mark('idb-result');
+        if (!validRecord(record)) {
+            hide(record ? 'invalid-record' : 'no-video');
+            return;
+        }
+        if (performance.now() >= deadline) {
+            hide('idb-timeout');
+            return;
+        }
+        phase = 'waiting-visible';
+        if (document.visibilityState !== 'visible') mark('waiting-visible');
+        await playWhenVisible();
+    }
+
+    function openingDiagnostics(overlay) {
+        const elapsed = performance.getEntriesByName('rphub-chat-startup-ready')[0]?.startTime;
+        const chatReady = Number.isFinite(elapsed) ? Math.round(elapsed - Number(overlay.dataset.startedAt)) : 'pending';
+        const reasons = {
+            'played':'已播放', 'no-video':'未设置视频', 'script-timeout':'播放器加载超时',
+            'visibility-timeout':'页面未及时进入前台', 'first-frame-timeout':'视频首帧超时',
+            'idb-timeout':'读取视频超时', 'idb-error':'读取视频失败', 'play-rejected':'浏览器拒绝启动视频',
+            'media-error':'媒体解码失败', 'interaction':'操作小家时取消', 'reduced-motion':'已启用减少动态效果',
+            'hidden':'页面切到后台', 'page-hidden':'已离开页面', 'restore-pending':'等待资料恢复',
+            'storage-unavailable':'本地存储暂不可用', 'invalid-record':'本地视频记录无效',
+            'playback-timeout':'播放未及时结束', 'ended-before-display':'视频提前结束',
+            'duration':'视频时长不符合要求', 'pause':'播放暂停', 'stalled':'播放停滞'
+        };
+        const { result, ...timing } = startupTrace;
+        return [
+            `本次开场 · ${reasons[result] || result || '处理中'}`,
+            `诊断 v3 · 首帧上限 ${overlay.dataset.startupBudget}ms · 聊天衔接上限 ${CHAT_HANDOFF_MS}ms`,
+            `前台 ${document.visibilityState} · PWA ${matchMedia('(display-mode: standalone)').matches || navigator.standalone === true} · 减少动态效果 ${reducedMotion.matches}`,
+            '时间点为毫秒（从开场初始化起）；first-frame 表示可解码画面，presented-frame 表示帧回调',
+            ...Object.entries(timing).map(([label, value]) => `${label} ${value}`),
+            `chat-ready ${chatReady}`
+        ].join('\n');
     }
 
     async function isMp4(file) {
@@ -217,11 +322,15 @@
         }).finally(() => releaseVideo(probe, url));
     }
 
-    function bindSettings(dialog) {
+    function bindSettings(dialog, overlay) {
         const input = dialog.querySelector('input');
         const [choose, preview, remove] = dialog.querySelectorAll('[data-opening-action]');
         const status = dialog.querySelector('[role="status"]');
         const player = dialog.querySelector('video');
+        const diagnosis = dialog.querySelector('[data-opening-diagnosis]');
+        diagnosis.parentElement.addEventListener('toggle', () => {
+            if (diagnosis.parentElement.open) diagnosis.textContent = openingDiagnostics(overlay);
+        });
         let previewUrl;
         let current;
         let busy = false;
@@ -267,6 +376,7 @@
             if (!event.target.closest?.('[data-open-local-opening]') || dialog.open || busy) return;
             visit++;
             current = null;
+            diagnosis.parentElement.open = false;
             dialog.showModal();
             update(async activeVisit => {
                 const record = await savedMedia();
@@ -340,7 +450,7 @@
     const overlay = document.getElementById('local-opening');
     const dialog = document.getElementById('local-opening-settings');
     if (dialog && typeof dialog.showModal === 'function' && globalThis.indexedDB) {
-        bindSettings(dialog);
+        bindSettings(dialog, overlay);
         document.documentElement.classList.add('local-opening-ready');
     }
     if (overlay && globalThis.indexedDB) startOpening(overlay);

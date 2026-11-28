@@ -8073,7 +8073,16 @@ const app = createApp({
 
         // Lifecycle
         let cottageController = null;
-        onMounted(async () => {
+        const startupChatReady = ref(false);
+        const finishStartupChat = () => {
+            if (startupChatReady.value) return;
+            startupChatReady.value = true;
+            nextTick(() => {
+                performance.mark('rphub-chat-startup-ready');
+                document.dispatchEvent(new Event('rphub-chat-startup-ready'));
+            });
+        };
+        const initializeApp = async () => {
             cottageController = window.RPHubCottage?.mount(document.querySelector('#app .cottage-room'));
             document.addEventListener('fullscreenchange', syncChatFullscreenState);
             document.addEventListener('webkitfullscreenchange', syncChatFullscreenState);
@@ -8252,8 +8261,10 @@ const app = createApp({
                     currentCharacterIndex.value = -1;
                     _isApplyingCharacterScopedData = false;
                     showToast('聊天记录恢复失败，原记录未被覆盖，请重新选择角色重试', 'error', 5000);
+                    finishStartupChat();
                     return;
                 }
+                finishStartupChat();
                 loadGlobalUiTemplateRuntimeForCharacter(char);
 
                 // Load Char Specifics
@@ -8276,7 +8287,9 @@ const app = createApp({
                 await scrollChatToBottom();
             } else if (characters.value.length > 0) {
                 // Fallback to first character if no last active
-                selectCharacter(0);
+                selectCharacter(0).finally(finishStartupChat);
+            } else {
+                finishStartupChat();
             }
 
             try {
@@ -8317,7 +8330,11 @@ const app = createApp({
                     showApiProviderSelector.value = false;
                 }
             });
-        });
+        };
+        onMounted(() => initializeApp().catch(error => {
+            finishStartupChat();
+            throw error;
+        }));
 
         onBeforeUnmount(() => {
             cottageController?.destroy();
@@ -8575,7 +8592,7 @@ const app = createApp({
             updateModalRef, latestUpdateConfig,
             showConfirmModal, confirmMessage, modelMode, isGeminiModel, isTruncationEnabled, isPresetEnabled, chatModelSlots, selectChatModelSlot, reasoningEffortSlider, reasoningEffortLabel, // Export for template
             isGenerating, isReceiving, isThinking, hasActiveToolInlineWork, isConversationBusy, activeToolContinuationMessageId, activeToolContinuationHasResponse, userInput, pendingCardInteraction, clearPendingCardInteraction, pendingChatImages, pendingChatImageReadCount, requestChatImageSelection, handleChatImageSelection, removePendingChatImage, modelSearchQuery, activeModelTag, modelTags, characterSearchQuery, filteredModels, filteredCharacters,
-            user, settings, apiProviderOptions, selectedApiProvider, isCustomApiProvider, customApiProviderOptions, showApiProviderSelector, selectApiProvider, characters, currentCharacter, currentCharacterAvatar, currentCharacterIndex, switchingCharacterIndex, chatHistory, displayedChatMessages, handleChatScroll, presets, presetRoleOptions, fontSizeOptions, availableImageStyleOptions, imageModelOptions, imageSizeOptions, imageGenCountOptions, scopeOptions, uiTemplatePlacementOptions, worldInfoPositionOptions, getPresetRoleLabel, getPresetRoleDisplayLabel, getPresetRoleBadgeClass, getSortableItemKey, regexScripts, worldInfo,
+            user, settings, apiProviderOptions, selectedApiProvider, isCustomApiProvider, customApiProviderOptions, showApiProviderSelector, selectApiProvider, characters, currentCharacter, currentCharacterAvatar, currentCharacterIndex, switchingCharacterIndex, startupChatReady, chatHistory, displayedChatMessages, handleChatScroll, presets, presetRoleOptions, fontSizeOptions, availableImageStyleOptions, imageModelOptions, imageSizeOptions, imageGenCountOptions, scopeOptions, uiTemplatePlacementOptions, worldInfoPositionOptions, getPresetRoleLabel, getPresetRoleDisplayLabel, getPresetRoleBadgeClass, getSortableItemKey, regexScripts, worldInfo,
             activeTools, activeToolAggressivenessOptions: ACTIVE_TOOL_AGGRESSIVENESS_OPTIONS, editingActiveTool, normalizeActiveTools, isWebActiveTool, getActiveToolDisplayDescription, getActiveToolResultCountMin, getActiveToolResultCountMax,
             getToolCallModeText, hasThinkingOrTools, isMessageThinkingOrRunning, isThinkingSummaryOpen, toggleThinkingSummary, markThinkingSummaryDetailOpened, getTimelineSteps,
             isStyleFilterDetailsOpen, toggleStyleFilterDetails, getStyleFilterHitSegments,
