@@ -1097,6 +1097,14 @@ label:is(:active, :focus-within) .settings-toggle::after { transition: transform
     .memory-cite:hover { background: rgb(var(--primary-500) / 0.22); }
     .memory-cite-text:hover { background: rgb(var(--primary-500) / 0.08); }
 }
+/* The saved display preference never changes raw [M...] markers or memory data. */
+.memory-citations-hidden .memory-cite,
+.memory-citations-hidden .memory-cite-pending { display: none !important; }
+.memory-citations-hidden .memory-cite-text {
+    text-decoration: none !important;
+    background: transparent !important;
+    cursor: inherit !important;
+}
 .compact-modal-panel.memory-cite-panel { max-width: 28rem; }
 .memory-cite-list { display: grid; gap: 0.625rem; max-height: min(60vh, 30rem); margin-top: 1rem; overflow-y: auto; overscroll-behavior: contain; }
 .memory-cite-card { padding: 0.75rem 0.875rem; border: 1px solid var(--c-border-soft); border-radius: var(--r-md); background: rgb(var(--gray-500) / 0.05); }
