@@ -26,9 +26,24 @@
         for (let i = 0; i < bytes.length; i += 16384) binary += String.fromCharCode(...bytes.subarray(i, i + 16384));
         return btoa(binary);
     };
-    const unb64 = text => {
-        if (typeof text !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) fail('FORMAT', '文件编码无效');
-        return Uint8Array.from(atob(text), char => char.charCodeAt(0));
+    const BASE64 = new Int16Array(128).fill(-1);
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'.split('').forEach((char, index) => { BASE64[char.charCodeAt(0)] = index; });
+    const unb64 = (text, stage = 'DATA_BASE64') => {
+        const labels = { OUTER_SALT: '外层盐值', OUTER_IV: '外层初始向量', OUTER_CIPHER: '外层密文', MEMORY_VECTOR: '解密后的记忆向量', TYPED_BYTES: '解密后的类型化数据', BUFFER_BYTES: '解密后的字节数据' };
+        const invalid = () => fail('FORMAT', `${labels[stage] || '数据'}编码无效（${stage}）；本次校验已停止`);
+        if (typeof text !== 'string' || text.length % 4) invalid();
+        const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+        const end = text.length - padding, bytes = new Uint8Array(text.length / 4 * 3 - padding);
+        const sextet = index => { const code = text.charCodeAt(index); return code < 128 ? BASE64[code] : -1; };
+        // Fixed work per quartet, no backtracking, giant binary string or per-character callback array.
+        for (let i = 0, j = 0; i < text.length; i += 4) {
+            const a = sextet(i), b = sextet(i + 1), c = i + 2 < end ? sextet(i + 2) : 0, d = i + 3 < end ? sextet(i + 3) : 0;
+            if (a < 0 || b < 0 || c < 0 || d < 0) invalid();
+            bytes[j++] = a << 2 | b >> 4;
+            if (i + 2 < end) bytes[j++] = b << 4 | c >> 2;
+            if (i + 3 < end) bytes[j++] = c << 6 | d;
+        }
+        return bytes;
     };
     // Tagged encoding preserves undefined, dates, typed arrays and literal object keys without collisions.
     function pack(value, depth = 0) {
@@ -58,11 +73,11 @@
         if (tag === 'undefined' && value.length === 1) return undefined;
         if (['string', 'boolean', 'number'].includes(tag) && value.length === 2 && typeof data === tag && (tag !== 'number' || Number.isFinite(data))) return data;
         if (tag === 'date' && value.length === 2 && typeof data === 'string' && Number.isFinite(Date.parse(data))) return new Date(data);
-        if (tag === 'buffer' && value.length === 2) return unb64(data).buffer;
+        if (tag === 'buffer' && value.length === 2) return unb64(data, 'BUFFER_BYTES').buffer;
         if (tag === 'typed' && value.length === 3) {
             const types = { Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array };
             if (!Object.hasOwn(types, data)) fail('FORMAT', '未知的向量类型');
-            const bytes = unb64(value[2]);
+            const bytes = unb64(value[2], 'TYPED_BYTES');
             if (bytes.length % types[data].BYTES_PER_ELEMENT) fail('FORMAT', '向量字节长度无效');
             return new types[data](bytes.buffer);
         }
@@ -136,7 +151,7 @@
                 const check = list => list.forEach(memory => {
                     if (!object(memory) || typeof memory.summary !== 'string') fail('FORMAT', '记忆正文格式无效');
                     for (const source of [...(memory.sourceUserIds || []), ...(memory.sourceAssistantIds || [])]) if (!messageIds.has(source)) fail('FORMAT', '记忆来源消息缺失，请先核查源数据');
-                    if (memory.embeddingQ !== undefined && (memory.embeddingEncoding !== 'int8:maxabs:v1' || unb64(memory.embeddingQ).length !== memory.embeddingDims || !(memory.embeddingScale > 0))) fail('FORMAT', '向量编码或维度无效');
+                    if (memory.embeddingQ !== undefined && (memory.embeddingEncoding !== 'int8:maxabs:v1' || unb64(memory.embeddingQ, 'MEMORY_VECTOR').length !== memory.embeddingDims || !(memory.embeddingScale > 0))) fail('FORMAT', '记忆向量编码或维度无效（MEMORY_VECTOR_SHAPE）');
                     if (memory.sourceMemories !== undefined) { if (!Array.isArray(memory.sourceMemories)) fail('FORMAT', '二次记忆来源无效'); check(memory.sourceMemories); }
                 });
                 check(value);
@@ -212,15 +227,21 @@
         async function unseal(text, password, kind) {
             if (typeof text !== 'string' || text.length > MAX_FILE_BYTES * (kind === 'journal' ? 4 : 1)) fail('SIZE', '文件过大或不是完整备份文件');
             let e;
-            try { e = JSON.parse(text); } catch (_) { fail('FORMAT', '文件损坏或不是完整备份格式'); }
+            try { e = JSON.parse(text); } catch (_) { fail('FORMAT', '文件损坏或不是完整备份格式（FILE_JSON）'); }
             if (!object(e) || Object.keys(e).sort().join(',') !== 'cipher,format,iterations,iv,kind,salt,version' || e.format !== FORMAT || e.version !== VERSION || e.kind !== kind || e.iterations !== ITERATIONS) fail('FORMAT', '未知文件版本或加密参数，未尝试恢复');
-            const salt = unb64(e.salt), iv = unb64(e.iv), cipher = unb64(e.cipher);
-            if (salt.length !== 16 || iv.length !== 12 || cipher.length < 16 || cipher.length > MAX_BYTES * (kind === 'journal' ? 4 : 1) + 16) fail('FORMAT', '加密文件长度无效');
+            if (typeof e.salt === 'string' && e.salt.length !== 24) fail('FORMAT', '外层盐值长度无效（OUTER_SALT_LENGTH）');
+            if (typeof e.iv === 'string' && e.iv.length !== 16) fail('FORMAT', '外层初始向量长度无效（OUTER_IV_LENGTH）');
+            if (typeof e.cipher === 'string' && e.cipher.length > Math.ceil((MAX_BYTES * (kind === 'journal' ? 4 : 1) + 16) / 3) * 4) fail('FORMAT', '外层密文长度无效（OUTER_CIPHER_LENGTH）');
+            const salt = unb64(e.salt, 'OUTER_SALT'), iv = unb64(e.iv, 'OUTER_IV'), cipher = unb64(e.cipher, 'OUTER_CIPHER');
+            if (salt.length !== 16) fail('FORMAT', '外层盐值长度无效（OUTER_SALT_LENGTH）');
+            if (iv.length !== 12) fail('FORMAT', '外层初始向量长度无效（OUTER_IV_LENGTH）');
+            if (cipher.length < 16 || cipher.length > MAX_BYTES * (kind === 'journal' ? 4 : 1) + 16) fail('FORMAT', '外层密文长度无效（OUTER_CIPHER_LENGTH）');
             const key = await keyFor(password, salt);
             let plain;
             try { plain = await env.crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad(e), tagLength: 128 }, key, cipher); }
-            catch (_) { fail('DECRYPT', '密码错误或文件已损坏；未写入任何资料'); }
-            try { return unpack(JSON.parse(decoder.decode(plain))); } catch (_) { fail('FORMAT', '解密后的数据格式无效'); }
+            catch (_) { fail('DECRYPT', '密码错误或文件已损坏（GCM_AUTH）；未写入任何资料'); }
+            try { return unpack(JSON.parse(decoder.decode(plain))); }
+            catch (error) { if (error?.name === 'BackupError') throw error; fail('FORMAT', '解密后的数据格式无效（CONTENT_JSON）'); }
         }
         async function backup(password) {
             return exclusive(async () => {
@@ -234,7 +255,7 @@
             const archive = await unseal(text, password, 'backup');
             if (!object(archive) || Object.keys(archive).sort().join(',') !== 'createdAt,data,digest,formatVersion,snapshotId,sourceVersion' || archive.formatVersion !== 1 || typeof archive.snapshotId !== 'string' || !Number.isSafeInteger(archive.createdAt)) fail('FORMAT', '未知备份内容版本');
             validate(archive.data);
-            if (await fingerprint(archive.data) !== archive.digest) fail('INTEGRITY', '资料完整性校验未通过');
+            if (await fingerprint(archive.data) !== archive.digest) fail('INTEGRITY', '资料完整性校验未通过（CONTENT_DIGEST）');
             return archive;
         }
         function merge(target, incoming) {

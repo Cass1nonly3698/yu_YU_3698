@@ -23,6 +23,7 @@
     };
     const MODES = ['auto', 'day', 'dusk', 'night'];
     const LABELS = { day: '温柔日光', dusk: '一室晚霞', night: '留一盏灯' };
+    const instances = new WeakMap();
     function phaseAt(timestamp) {
         const minutes = ((Math.floor(timestamp / 60000) + 480) % 1440 + 1440) % 1440;
         return minutes >= 360 && minutes < 1020 ? 'day' : minutes >= 1020 && minutes < 1140 ? 'dusk' : 'night';
@@ -40,8 +41,8 @@
     </div>`;
 
     function mount(root, options = {}) {
-        if (!root || root.dataset.cottageMounted) return null;
-        root.dataset.cottageMounted = 'true';
+        if (!root) return null;
+        if (instances.has(root)) return instances.get(root);
         const host = root.querySelector('[data-cottage-host]');
         if (!host) return null;
         const now = options.now || Date.now;
@@ -100,25 +101,27 @@
         document.addEventListener('keydown', escape);
         document.addEventListener('visibilitychange', render);
         window.addEventListener('pageshow', render);
+        window.addEventListener('focus', render);
         window.addEventListener('storage', sync);
         const interval = window.setInterval(render, 30000);
         render();
-        return { render, destroy() {
+        const controller = { render, destroy() {
             window.clearInterval(interval);
             host.removeEventListener('click', choose);
             document.removeEventListener('pointerdown', outside);
             document.removeEventListener('keydown', escape);
             document.removeEventListener('visibilitychange', render);
             window.removeEventListener('pageshow', render);
+            window.removeEventListener('focus', render);
             window.removeEventListener('storage', sync);
             host.replaceChildren();
             delete root.dataset.cottageMounted;
+            instances.delete(root);
         } };
+        root.dataset.cottageMounted = 'true';
+        instances.set(root, controller);
+        return controller;
     }
     window.RPHubCottage = Object.freeze({ phaseAt, normalizePreference, mount, storageKey: STORAGE_KEY });
-    const start = () => document.querySelectorAll('.cottage-room').forEach(root => mount(root));
-    if (typeof document !== 'undefined') {
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-        else start();
-    }
+    // The Vue owner mounts this after its DOM is committed. Never inject into Vue's unmounted template.
 })();
